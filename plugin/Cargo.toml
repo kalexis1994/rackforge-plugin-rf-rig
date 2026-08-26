@@ -1,0 +1,18 @@
+[package]
+name = "rackforge-rf-rig"
+description = "Portable wasm-v1 RackForge adapter for RF-Rig"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rackforge-plugin-sdk.workspace = true
+rf-rig-contract.workspace = true
+rf-rig-dsp.workspace = true
+
+[dev-dependencies]
+libm.workspace = true

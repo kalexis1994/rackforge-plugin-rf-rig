@@ -1,0 +1,45 @@
+schema_version = 2
+id = "org.rackforge.rf-rig"
+name = "RF-Rig"
+vendor = "RackForge Community"
+version = "0.1.0"
+description = "A guitar pedalboard modelled at circuit level: compressor, overdrive, distortion, fuzz, chorus, delay and reverb in any order."
+kind = "effect"
+state_version = 1
+capabilities = [
+    "audio_input",
+    "audio_output",
+    "presets",
+    "state",
+    "sample_accurate_automation",
+]
+config_mode = false
+
+[audio]
+input_buses = [{ id = "main", name = "Guitar In", channels = 1, layout = "mono" }]
+output_buses = [{ id = "main", name = "Board Out", channels = 2, layout = "stereo" }]
+
+[web_ui]
+api_version = 1
+
+[[web_ui.surfaces]]
+kind = "play"
+entry = "web/play.html"
+
+[api]
+major = 1
+minor = 9
+
+[branding]
+icon = "branding/icon.png"
+banner = "branding/banner.png"
+splash = "branding/splash.png"
+background_color = "#12100E"
+accent_color = "#E8A33D"
+
+[component]
+abi = "wasm-v1"
+path = "component.wasm"
+runtime_descriptor = "metadata/runtime.json"
+parameter_schema = "metadata/parameters.json"
+preset_catalog = "metadata/presets.json"

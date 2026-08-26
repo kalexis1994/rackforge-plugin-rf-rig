@@ -1,0 +1,7 @@
+[package]
+name = "rf-rig-contract"
+description = "Parameter, chain and state contract shared by the RF-Rig engine, packager and control surface"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true

@@ -1,0 +1,3 @@
+# Copy this file to `.cargo/config.toml` for adjacent RackForge development.
+# Cargo path overrides preserve the canonical Git-backed lockfile.
+paths = ["../rackforge/crates/rackforge-plugin-sdk"]

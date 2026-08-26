@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "rf-rig-surface",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8131", "--directory", "."],
+      "port": 8131
+    }
+  ]
+}

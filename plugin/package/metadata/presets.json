@@ -1,0 +1,72 @@
+{
+  "banks": [
+    {
+      "id": "factory",
+      "name": "Factory",
+      "order": 0
+    }
+  ],
+  "presets": [
+    {
+      "bank": "factory",
+      "category": "Board",
+      "description": "Compressor into a short spring. Everything else off.",
+      "editable": false,
+      "id": "clean-board",
+      "name": "Clean Board",
+      "order": 0,
+      "tags": []
+    },
+    {
+      "bank": "factory",
+      "category": "Board",
+      "description": "Overdrive just past the knee, compressor in front of it.",
+      "editable": false,
+      "id": "blues-drive",
+      "name": "Blues Drive",
+      "order": 1,
+      "tags": []
+    },
+    {
+      "bank": "factory",
+      "category": "Board",
+      "description": "Hard clipping with the scoop open and a slapback behind it.",
+      "editable": false,
+      "id": "rock-distortion",
+      "name": "Rock Distortion",
+      "order": 2,
+      "tags": []
+    },
+    {
+      "bank": "factory",
+      "category": "Board",
+      "description": "Both clipping stages wide open, delay long enough to sing.",
+      "editable": false,
+      "id": "fuzz-lead",
+      "name": "Fuzz Lead",
+      "order": 3,
+      "tags": []
+    },
+    {
+      "bank": "factory",
+      "category": "Board",
+      "description": "Dry front end, spring tank most of the way up.",
+      "editable": false,
+      "id": "surf",
+      "name": "Surf",
+      "order": 4,
+      "tags": []
+    },
+    {
+      "bank": "factory",
+      "category": "Board",
+      "description": "Chorus into a wide analog echo into a long plate.",
+      "editable": false,
+      "id": "ambient-wash",
+      "name": "Ambient Wash",
+      "order": 5,
+      "tags": []
+    }
+  ],
+  "schema_version": 1
+}

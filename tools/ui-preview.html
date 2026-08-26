@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RF-Rig surface preview</title>
+    <style>
+      html,
+      body,
+      iframe {
+        width: 100%;
+        min-height: 100%;
+        margin: 0;
+        border: 0;
+        background: #12100e;
+      }
+      iframe {
+        position: fixed;
+        inset: 0;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+      A stand-in for the RackForge shell, for working on the surface without
+      building and installing a package. It speaks the same
+      `rackforge.plugin.web@1` messages the host does and keeps parameter values
+      in memory; it does not run the engine, so nothing here makes sound.
+    -->
+    <iframe id="surface" src="../plugin/package/web/play.html" title="RF-Rig PLAY surface"></iframe>
+    <script type="module">
+      const protocol = "rackforge.plugin.web@1";
+      const frame = document.querySelector("#surface");
+      const [schema, catalog] = await Promise.all([
+        fetch("../plugin/package/metadata/parameters.json").then((response) => response.json()),
+        fetch("../plugin/package/metadata/presets.json").then((response) => response.json()),
+      ]);
+
+      const sounds = catalog.presets.map((preset) => ({
+        id: preset.id,
+        name: preset.name,
+        bank: preset.bank,
+        detail: preset.description,
+        editable: false,
+      }));
+
+      const values = new Map(
+        schema.parameters.map((parameter) => [
+          parameter.index,
+          typeof parameter.kind.default === "boolean"
+            ? Number(parameter.kind.default)
+            : parameter.kind.default,
+        ]),
+      );
+      let selectedSoundId = "";
+
+      window.__surfaceErrors = [];
+      window.addEventListener("error", (event) => window.__surfaceErrors.push(String(event.message)));
+
+      const send = (message) => frame.contentWindow.postMessage(message, location.origin);
+      const sendContext = () =>
+        send({
+          protocol,
+          kind: "context",
+          surface: "play",
+          instance: {
+            instance_id: "preview",
+            plugin_id: "org.rackforge.rf-rig",
+            plugin_name: "RF-Rig",
+            ui_layouts: ["play"],
+            config_available: false,
+            selected_sound_id: selectedSoundId,
+            sounds,
+          },
+          host: { active_mode: "live", master_level: 0, master_pan: 0 },
+        });
+      const respond = (requestId, result) =>
+        send({ protocol, kind: "response", request_id: requestId, ok: true, result });
+      const refuse = (requestId, error) =>
+        send({ protocol, kind: "response", request_id: requestId, ok: false, error });
+
+      /** The host validates before it writes; so does the preview. */
+      function canonical(parameter, value) {
+        const kind = parameter.kind;
+        if (!Number.isFinite(value)) return null;
+        if (kind.type === "boolean") return value === 0 || value === 1 ? value : null;
+        if (kind.type === "enum") {
+          return kind.choices.some((choice) => choice.value === value) ? value : null;
+        }
+        if (kind.type === "integer") {
+          return Number.isInteger(value) && value >= kind.minimum && value <= kind.maximum
+            ? value
+            : null;
+        }
+        return value >= kind.minimum && value <= kind.maximum ? value : null;
+      }
+
+      window.addEventListener("message", (event) => {
+        if (event.source !== frame.contentWindow || event.origin !== location.origin) return;
+        const message = event.data;
+        if (!message || message.protocol !== protocol) return;
+        if (message.kind === "ready") {
+          sendContext();
+          return;
+        }
+        if (message.kind !== "request") return;
+
+        if (message.method === "plugin.parameters") {
+          respond(message.request_id, {
+            schema,
+            values: schema.parameters.map((parameter) => ({
+              index: parameter.index,
+              value: values.get(parameter.index),
+            })),
+          });
+          return;
+        }
+
+        if (message.method === "plugin.set_parameter") {
+          const parameter = schema.parameters.find(
+            (candidate) => candidate.index === message.params.parameter_index,
+          );
+          if (!parameter) {
+            refuse(message.request_id, "unknown parameter");
+            return;
+          }
+          const value = canonical(parameter, message.params.value);
+          if (value === null) {
+            refuse(message.request_id, "value outside the declared range");
+            return;
+          }
+          values.set(parameter.index, value);
+          respond(message.request_id, { parameter_index: parameter.index, value });
+          return;
+        }
+
+        if (message.method === "plugin.select_sound") {
+          selectedSoundId = message.params.sound_id;
+          respond(message.request_id, {});
+          sendContext();
+          return;
+        }
+
+        if (message.method === "plugin.set_surface_info") {
+          respond(message.request_id, {});
+          return;
+        }
+
+        refuse(message.request_id, "the preview does not implement " + message.method);
+      });
+    </script>
+  </body>
+</html>

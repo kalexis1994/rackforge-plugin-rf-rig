@@ -1,0 +1,21 @@
+[package]
+name = "rf-rig-lab"
+description = "Packaging metadata generator and measurement bench for RF-Rig"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "rf-rig-lab"
+path = "src/main.rs"
+
+[dependencies]
+rf-rig-contract.workspace = true
+rf-rig-dsp.workspace = true
+hound = "3.5"
+serde_json = "1.0"
+
+[dev-dependencies]
+rackforge-plugin-runtime.workspace = true
+rf-rig-contract.workspace = true

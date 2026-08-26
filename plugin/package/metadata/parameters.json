@@ -1,0 +1,913 @@
+{
+  "pages": [
+    {
+      "id": "rig",
+      "name": "Rig",
+      "order": 0
+    },
+    {
+      "header": "OTA feedback compressor with a peak detector",
+      "id": "comp",
+      "name": "Compressor",
+      "order": 1
+    },
+    {
+      "header": "Op-amp stage with symmetric diode clipping in the feedback loop",
+      "id": "drive",
+      "name": "Overdrive",
+      "order": 2
+    },
+    {
+      "header": "Transistor booster into an op-amp stage with hard clipping to ground",
+      "id": "dist",
+      "name": "Distortion",
+      "order": 3
+    },
+    {
+      "header": "Two cascaded feedback-clipping stages with a lowpass/highpass blend tone stack",
+      "id": "fuzz",
+      "name": "Fuzz",
+      "order": 4
+    },
+    {
+      "header": "Bucket-brigade delay line with companding and a swept clock",
+      "id": "chorus",
+      "name": "Chorus",
+      "order": 5
+    },
+    {
+      "header": "Bucket-brigade echo with band-limited repeats, or a clean digital line",
+      "id": "delay",
+      "name": "Delay",
+      "order": 6
+    },
+    {
+      "header": "Dispersive spring tank or a feedback delay network plate",
+      "id": "reverb",
+      "name": "Reverb",
+      "order": 7
+    }
+  ],
+  "parameters": [
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "rig.input",
+      "index": 0,
+      "kind": {
+        "default": 0.0,
+        "maximum": 24.0,
+        "minimum": -24.0,
+        "step": 0.1,
+        "type": "float",
+        "unit": "dB"
+      },
+      "name": "Input Trim",
+      "order": 0,
+      "page": "rig",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "rig.output",
+      "index": 1,
+      "kind": {
+        "default": 0.0,
+        "maximum": 24.0,
+        "minimum": -24.0,
+        "step": 0.1,
+        "type": "float",
+        "unit": "dB"
+      },
+      "name": "Output Level",
+      "order": 1,
+      "page": "rig",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "rig.gate",
+      "index": 2,
+      "kind": {
+        "default": -90.0,
+        "maximum": -20.0,
+        "minimum": -90.0,
+        "step": 0.5,
+        "type": "float",
+        "unit": "dBFS"
+      },
+      "name": "Noise Gate",
+      "order": 2,
+      "page": "rig",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "comp.engaged",
+      "index": 3,
+      "kind": {
+        "default": false,
+        "type": "boolean"
+      },
+      "name": "Engaged",
+      "order": 0,
+      "page": "comp",
+      "suggested_control": "toggle"
+    },
+    {
+      "flags": {
+        "advanced": true,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "comp.position",
+      "index": 4,
+      "kind": {
+        "default": 1,
+        "maximum": 7,
+        "minimum": 1,
+        "step": 1,
+        "type": "integer"
+      },
+      "name": "Board Position",
+      "order": 1,
+      "page": "comp",
+      "suggested_control": "list"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "comp.sustain",
+      "index": 5,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Sustain",
+      "order": 2,
+      "page": "comp",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "comp.attack",
+      "index": 6,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Attack",
+      "order": 3,
+      "page": "comp",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "comp.level",
+      "index": 7,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Level",
+      "order": 4,
+      "page": "comp",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "drive.engaged",
+      "index": 8,
+      "kind": {
+        "default": false,
+        "type": "boolean"
+      },
+      "name": "Engaged",
+      "order": 0,
+      "page": "drive",
+      "suggested_control": "toggle"
+    },
+    {
+      "flags": {
+        "advanced": true,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "drive.position",
+      "index": 9,
+      "kind": {
+        "default": 2,
+        "maximum": 7,
+        "minimum": 1,
+        "step": 1,
+        "type": "integer"
+      },
+      "name": "Board Position",
+      "order": 1,
+      "page": "drive",
+      "suggested_control": "list"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "drive.drive",
+      "index": 10,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Drive",
+      "order": 2,
+      "page": "drive",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "drive.tone",
+      "index": 11,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Tone",
+      "order": 3,
+      "page": "drive",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "drive.level",
+      "index": 12,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Level",
+      "order": 4,
+      "page": "drive",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "dist.engaged",
+      "index": 13,
+      "kind": {
+        "default": false,
+        "type": "boolean"
+      },
+      "name": "Engaged",
+      "order": 0,
+      "page": "dist",
+      "suggested_control": "toggle"
+    },
+    {
+      "flags": {
+        "advanced": true,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "dist.position",
+      "index": 14,
+      "kind": {
+        "default": 3,
+        "maximum": 7,
+        "minimum": 1,
+        "step": 1,
+        "type": "integer"
+      },
+      "name": "Board Position",
+      "order": 1,
+      "page": "dist",
+      "suggested_control": "list"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "dist.distortion",
+      "index": 15,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Distortion",
+      "order": 2,
+      "page": "dist",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "dist.tone",
+      "index": 16,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Tone",
+      "order": 3,
+      "page": "dist",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "dist.level",
+      "index": 17,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Level",
+      "order": 4,
+      "page": "dist",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "fuzz.engaged",
+      "index": 18,
+      "kind": {
+        "default": false,
+        "type": "boolean"
+      },
+      "name": "Engaged",
+      "order": 0,
+      "page": "fuzz",
+      "suggested_control": "toggle"
+    },
+    {
+      "flags": {
+        "advanced": true,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "fuzz.position",
+      "index": 19,
+      "kind": {
+        "default": 4,
+        "maximum": 7,
+        "minimum": 1,
+        "step": 1,
+        "type": "integer"
+      },
+      "name": "Board Position",
+      "order": 1,
+      "page": "fuzz",
+      "suggested_control": "list"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "fuzz.sustain",
+      "index": 20,
+      "kind": {
+        "default": 0.6,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Sustain",
+      "order": 2,
+      "page": "fuzz",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "fuzz.tone",
+      "index": 21,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Tone",
+      "order": 3,
+      "page": "fuzz",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "fuzz.volume",
+      "index": 22,
+      "kind": {
+        "default": 0.4,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Volume",
+      "order": 4,
+      "page": "fuzz",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "chorus.engaged",
+      "index": 23,
+      "kind": {
+        "default": false,
+        "type": "boolean"
+      },
+      "name": "Engaged",
+      "order": 0,
+      "page": "chorus",
+      "suggested_control": "toggle"
+    },
+    {
+      "flags": {
+        "advanced": true,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "chorus.position",
+      "index": 24,
+      "kind": {
+        "default": 5,
+        "maximum": 7,
+        "minimum": 1,
+        "step": 1,
+        "type": "integer"
+      },
+      "name": "Board Position",
+      "order": 1,
+      "page": "chorus",
+      "suggested_control": "list"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "chorus.rate",
+      "index": 25,
+      "kind": {
+        "default": 0.8,
+        "maximum": 8.0,
+        "minimum": 0.05,
+        "step": 0.01,
+        "type": "float",
+        "unit": "Hz"
+      },
+      "name": "Rate",
+      "order": 2,
+      "page": "chorus",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "chorus.depth",
+      "index": 26,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Depth",
+      "order": 3,
+      "page": "chorus",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "chorus.mix",
+      "index": 27,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Mix",
+      "order": 4,
+      "page": "chorus",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "delay.engaged",
+      "index": 28,
+      "kind": {
+        "default": false,
+        "type": "boolean"
+      },
+      "name": "Engaged",
+      "order": 0,
+      "page": "delay",
+      "suggested_control": "toggle"
+    },
+    {
+      "flags": {
+        "advanced": true,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "delay.position",
+      "index": 29,
+      "kind": {
+        "default": 6,
+        "maximum": 7,
+        "minimum": 1,
+        "step": 1,
+        "type": "integer"
+      },
+      "name": "Board Position",
+      "order": 1,
+      "page": "delay",
+      "suggested_control": "list"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "delay.time",
+      "index": 30,
+      "kind": {
+        "default": 380.0,
+        "maximum": 1200.0,
+        "minimum": 20.0,
+        "step": 1.0,
+        "type": "float",
+        "unit": "ms"
+      },
+      "name": "Time",
+      "order": 2,
+      "page": "delay",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "delay.feedback",
+      "index": 31,
+      "kind": {
+        "default": 0.35,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Repeats",
+      "order": 3,
+      "page": "delay",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "delay.mix",
+      "index": 32,
+      "kind": {
+        "default": 0.3,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Mix",
+      "order": 4,
+      "page": "delay",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "delay.mode",
+      "index": 33,
+      "kind": {
+        "choices": [
+          {
+            "name": "Analog (BBD)",
+            "value": 0
+          },
+          {
+            "name": "Digital",
+            "value": 1
+          }
+        ],
+        "default": 0,
+        "type": "enum"
+      },
+      "name": "Mode",
+      "order": 5,
+      "page": "delay",
+      "suggested_control": "list"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "delay.width",
+      "index": 34,
+      "kind": {
+        "default": 0.0,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Width",
+      "order": 6,
+      "page": "delay",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "reverb.engaged",
+      "index": 35,
+      "kind": {
+        "default": false,
+        "type": "boolean"
+      },
+      "name": "Engaged",
+      "order": 0,
+      "page": "reverb",
+      "suggested_control": "toggle"
+    },
+    {
+      "flags": {
+        "advanced": true,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "reverb.position",
+      "index": 36,
+      "kind": {
+        "default": 7,
+        "maximum": 7,
+        "minimum": 1,
+        "step": 1,
+        "type": "integer"
+      },
+      "name": "Board Position",
+      "order": 1,
+      "page": "reverb",
+      "suggested_control": "list"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "reverb.decay",
+      "index": 37,
+      "kind": {
+        "default": 0.4,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Decay",
+      "order": 2,
+      "page": "reverb",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "reverb.tone",
+      "index": 38,
+      "kind": {
+        "default": 0.5,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Tone",
+      "order": 3,
+      "page": "reverb",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "reverb.mix",
+      "index": 39,
+      "kind": {
+        "default": 0.25,
+        "maximum": 1.0,
+        "minimum": 0.0,
+        "step": 0.001,
+        "type": "float"
+      },
+      "name": "Mix",
+      "order": 4,
+      "page": "reverb",
+      "suggested_control": "knob"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": true,
+        "read_only": false
+      },
+      "id": "reverb.mode",
+      "index": 40,
+      "kind": {
+        "choices": [
+          {
+            "name": "Spring",
+            "value": 0
+          },
+          {
+            "name": "Plate",
+            "value": 1
+          }
+        ],
+        "default": 0,
+        "type": "enum"
+      },
+      "name": "Mode",
+      "order": 5,
+      "page": "reverb",
+      "suggested_control": "list"
+    }
+  ],
+  "schema_version": 1
+}

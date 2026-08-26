@@ -1,0 +1,11 @@
+[package]
+name = "rf-rig-dsp"
+description = "Circuit-derived pedal models and the RF-Rig signal chain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rf-rig-contract.workspace = true
+libm = { workspace = true }

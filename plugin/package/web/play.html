@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>RF-Rig</title>
+    <style>
+      :root {
+        --board: #12100e;
+        --board-light: #1c1917;
+        --enclosure: #2c3034;
+        --enclosure-edge: #454b51;
+        --ink: #eee8dc;
+        --muted: #968f86;
+        --amber: #e8a33d;
+        --amber-dim: #6d4f22;
+        --steel: #b0b2b4;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+
+      body {
+        background:
+          radial-gradient(120% 80% at 50% -10%, #241d15 0%, var(--board) 60%),
+          repeating-linear-gradient(0deg, #14120f 0 3px, #100e0c 3px 6px);
+        color: var(--ink);
+        font-family: "Segoe UI", Roboto, system-ui, sans-serif;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 18px;
+        padding: 14px 20px 10px;
+        border-bottom: 1px solid #2a2521;
+        flex-wrap: wrap;
+      }
+
+      .wordmark {
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+      }
+
+      .subtitle {
+        color: var(--amber);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+      }
+
+      .spacer {
+        flex: 1;
+      }
+
+      select,
+      button {
+        font: inherit;
+        color: var(--ink);
+        background: var(--enclosure);
+        border: 1px solid var(--enclosure-edge);
+        border-radius: 8px;
+        padding: 6px 12px;
+        cursor: pointer;
+      }
+
+      select:focus-visible,
+      button:focus-visible {
+        outline: 2px solid var(--amber);
+        outline-offset: 2px;
+      }
+
+      .rig {
+        display: flex;
+        gap: 20px;
+        padding: 10px 20px 14px;
+        align-items: flex-end;
+        border-bottom: 1px solid #2a2521;
+        flex-wrap: wrap;
+      }
+
+      main {
+        flex: 1;
+        overflow: auto;
+        padding: 20px;
+      }
+
+      .board {
+        display: flex;
+        gap: 0;
+        align-items: stretch;
+        min-height: 100%;
+      }
+
+      .pedal {
+        width: 216px;
+        flex: 0 0 auto;
+        background: linear-gradient(180deg, #33383d 0%, var(--enclosure) 42%, #24282c 100%);
+        border: 1px solid var(--enclosure-edge);
+        border-radius: 16px;
+        padding: 12px 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        box-shadow: 0 10px 24px #0008;
+      }
+
+      .pedal.off {
+        filter: saturate(0.55) brightness(0.86);
+      }
+
+      .pedal-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .pedal-name {
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        font-size: 14px;
+      }
+
+      .pedal-circuit {
+        font-size: 10px;
+        line-height: 1.35;
+        color: var(--muted);
+        min-height: 40px;
+      }
+
+      .knobs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 4px;
+        justify-content: center;
+      }
+
+      .knob {
+        width: 62px;
+        text-align: center;
+        touch-action: none;
+        user-select: none;
+      }
+
+      .knob svg {
+        display: block;
+        margin: 0 auto;
+        cursor: ns-resize;
+      }
+
+      .knob .label {
+        font-size: 10px;
+        color: var(--muted);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .knob .reading {
+        font-size: 10px;
+        color: var(--ink);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .choice {
+        display: flex;
+        gap: 4px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      .choice button {
+        padding: 3px 8px;
+        font-size: 11px;
+        border-radius: 6px;
+      }
+
+      .choice button[aria-pressed="true"] {
+        background: var(--amber-dim);
+        border-color: var(--amber);
+        color: var(--ink);
+      }
+
+      .footer {
+        margin-top: auto;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .lamp {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--amber-dim);
+        box-shadow: none;
+      }
+
+      .pedal.on .lamp {
+        background: var(--amber);
+        box-shadow: 0 0 10px 2px #e8a33d80;
+      }
+
+      .stomp {
+        width: 46px;
+        height: 46px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 34% 30%, #4a4f54, #1d2023 70%);
+        border: 3px solid var(--steel);
+        cursor: pointer;
+      }
+
+      .move {
+        display: flex;
+        gap: 4px;
+      }
+
+      .move button {
+        padding: 2px 7px;
+        font-size: 12px;
+        line-height: 1.2;
+      }
+
+      .cable {
+        flex: 0 0 34px;
+        align-self: center;
+        height: 60px;
+        opacity: 0.85;
+      }
+
+      .status {
+        padding: 6px 20px 10px;
+        font-size: 11px;
+        color: var(--muted);
+        border-top: 1px solid #2a2521;
+        min-height: 28px;
+      }
+
+      .status.error {
+        color: #e57373;
+      }
+
+      @media (max-width: 720px) {
+        .board {
+          flex-direction: column;
+          align-items: center;
+        }
+        .cable {
+          transform: rotate(90deg);
+          height: 34px;
+          flex-basis: 34px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div class="wordmark">RF-RIG</div>
+        <div class="subtitle">A pedalboard modelled at circuit level</div>
+      </div>
+      <div class="spacer"></div>
+      <label>
+        <span class="subtitle">Board</span>
+        <select id="presets" aria-label="Factory board"></select>
+      </label>
+    </header>
+
+    <section class="rig" id="rig" aria-label="Rig controls"></section>
+
+    <main>
+      <div class="board" id="board"></div>
+    </main>
+
+    <div class="status" id="status">Connecting to RackForge…</div>
+
+    <script src="play.js"></script>
+  </body>
+</html>
