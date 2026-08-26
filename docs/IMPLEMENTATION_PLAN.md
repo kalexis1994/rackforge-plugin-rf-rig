@@ -10,7 +10,7 @@
 * Adapter: `wasm-v1` component, sample-accurate automation, state save/load.
 * Package: schema-2 manifest declaring a mono input and stereo output bus,
   generated metadata, generated branding, static PLAY surface.
-* Tests: 128 covering the contract, each circuit block, each pedal's behaviour,
+* Tests: 137 covering the contract, each circuit block, each pedal's behaviour,
   the chain and the adapter — plus a guard that loads the built component in the
   host's own runtime, and a bench that reports what the board costs.
 
@@ -82,6 +82,15 @@ that.
    release. The ratio now runs from 1.08:1 at the bottom of the control to 8:1
    at the top, where before the whole travel was one shape.
 
+8. **The op-amp stages** (`circuit/opamp.rs`). Finite gain-bandwidth, slew
+   rate, supply, and both capacitors around the loop, solved together with the
+   diodes. The overdrive now loses its top as the drive comes up, because the
+   loop runs out of authority at 13 kHz — which is where a megahertz of
+   gain-bandwidth lands against a noise gain of 76. It also found a slow
+   instability: solving for the inverting node let the amplifier's per-step
+   gain magnify the solver's error into the next sample, and the output grew
+   over seconds. Solving for the output fixed it and was faster.
+
 ### Next, in order of expected audible return
 
 1. **Component tolerance.** A seed per instance, values drifting inside their
@@ -111,7 +120,7 @@ that.
 ## Performance
 
 Measured, per 512-frame block at 48 kHz on the development desktop: the whole
-board engaged costs 12.0 % of one core, and the fuzz — three transistor stages,
+board engaged costs 11.2 % of one core, and the fuzz — three transistor stages,
 each solved four times per sample — is 5.0 % of that. The table is in
 [`MEASUREMENT.md`](MEASUREMENT.md), and the bench that produces it is
 `cargo test --release -p rf-rig-dsp --test bench_blocks -- --ignored --nocapture`.

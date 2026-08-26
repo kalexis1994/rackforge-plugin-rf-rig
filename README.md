@@ -51,7 +51,7 @@ The method, and an honest list of what is still approximated, is in
 | Pedal | Circuit family |
 | --- | --- |
 | **Compressor** | An OTA gain cell, `Iout = Iabc·tanh(Vin/2Vt)`, controlled by a diode charging a timing capacitor. That detector gives it a real threshold — below it the pedal is a clean gain stage whatever the sustain knob says — an attack that depends on how hard you hit it, and a ratio that runs from 1.08:1 to 8:1 across the control. |
-| **Overdrive** | Op-amp stage with a diode pair across the feedback resistor, and an input network that stops amplifying below ~720 Hz. That is the mid-hump, and the reason it cleans up on the guitar's volume. |
+| **Overdrive** | Op-amp stage with a diode pair across the feedback resistor, and an input network that stops amplifying below ~720 Hz — the mid-hump, measured at 8.8 dB. The amplifier is a real one: with the drive up its loop runs out of authority at 13 kHz, which is part of why this circuit sounds smooth rather than fizzy. |
 | **Distortion** | Booster into a high-gain stage that hard-clips to ground, behind a scooped tone network. |
 | **Fuzz** | A booster into two transistor clipping stages, each solved from Ebers-Moll with its diodes inside the same system. They bias at 0.97 V and clip asymmetrically because that is how much room the collector has. |
 | **Chorus** | Bucket-brigade line with companding and a swept clock, so the delayed copy is genuinely pitch-shifted rather than crossfaded. |

@@ -11,12 +11,20 @@
 //!   stage never stops following its input. The knee is soft and the pedal
 //!   cleans up when the player rolls back the guitar volume.
 //!
-//! The clipping itself is not shaped. It is solved from
-//! `I_in = V/R_f + 2*Is*sinh(V/(n*Vt))` at four times the sample rate; the
-//! curve is whatever those numbers imply.
+//! The clipping itself is not shaped, and neither is the amplifier around it.
+//! The whole stage is solved together (`circuit::opamp`): a real op-amp with a
+//! megahertz of gain-bandwidth, the input capacitor and resistor that set where
+//! the gain starts, the capacitor across the feedback resistor, and the diode
+//! pair — all in one loop, four times per sample.
+//!
+//! The amplifier's limits are audible here rather than academic. With the drive
+//! up, the noise gain is near 76, so a megahertz of gain-bandwidth leaves the
+//! loop without authority above about 13 kHz — inside the band, and exactly
+//! where the clipping is making harmonics.
 
 use crate::circuit::filters::{CouplingCap, DcBlocker, OnePole};
-use crate::circuit::nonlinear::{ClipperSolver, Diode};
+use crate::circuit::nonlinear::Diode;
+use crate::circuit::opamp::{NonInvertingStage, OpAmpDesign};
 use crate::circuit::oversample::Oversampler4;
 use crate::circuit::tonestack::{ToneNetwork, ToneStack};
 use crate::math::{clamp, exponential};
@@ -26,10 +34,14 @@ pub const INPUT_IMPEDANCE: f32 = 500_000.0;
 /// The level control at the output.
 pub const OUTPUT_IMPEDANCE: f32 = 10_000.0;
 
-/// Series resistance from the inverting node to the clipping network.
+/// Series resistance from the inverting node towards ground.
 const INPUT_RESISTANCE: f32 = 4_700.0;
-/// 4.7 kΩ with 47 nF. Below this corner the stage barely amplifies at all.
-const INPUT_CORNER_HZ: f32 = 720.0;
+/// The capacitor in series with it. Together they put the corner at 720 Hz,
+/// below which the stage barely amplifies at all — the mid-hump, in two
+/// component values.
+const INPUT_CAPACITANCE: f32 = 47.0e-9;
+/// The small capacitor across the feedback resistor.
+const FEEDBACK_CAPACITANCE: f32 = 51.0e-12;
 /// The fixed part of the feedback resistance.
 const FIXED_FEEDBACK: f32 = 51_000.0;
 /// The drive pot in series with it.
@@ -39,13 +51,10 @@ const DRIVE_POT: f32 = 500_000.0;
 pub struct Overdrive {
     input_cap: CouplingCap,
     oversampler: Oversampler4,
-    input_shaper: OnePole,
-    solver: ClipperSolver,
-    stage_lowpass: OnePole,
+    stage: NonInvertingStage,
     tone: ToneStack,
     output_lowpass: OnePole,
     dc: DcBlocker,
-    feedback_resistance: f32,
     level: f32,
 }
 
@@ -53,17 +62,21 @@ impl Overdrive {
     pub fn prepare(&mut self, sample_rate: f32) {
         let inner_rate = sample_rate * Oversampler4::FACTOR as f32;
         self.input_cap = CouplingCap::new(15.0, sample_rate);
-        self.input_shaper = OnePole::new(INPUT_CORNER_HZ, inner_rate);
-        // The small capacitor across the feedback resistor. It is what stops
-        // the stage from amplifying the fizz its own clipping creates.
-        self.stage_lowpass = OnePole::new(6_000.0, inner_rate);
+        self.stage = NonInvertingStage::new(OpAmpDesign {
+            feedback_resistance: FIXED_FEEDBACK + 0.5 * DRIVE_POT,
+            input_resistance: INPUT_RESISTANCE,
+            input_capacitance: INPUT_CAPACITANCE,
+            feedback_capacitance: FEEDBACK_CAPACITANCE,
+            diodes: Diode::SILICON,
+            ..OpAmpDesign::default()
+        });
+        self.stage.prepare(inner_rate);
         // The tone network runs inside the oversampled section, where the
         // bilinear transform barely warps it and where the real circuit has it:
         // in the continuous path, right after the clipping stage.
         self.tone.prepare(ToneNetwork::OVERDRIVE, inner_rate);
         self.output_lowpass = OnePole::new(5_500.0, sample_rate);
         self.dc = DcBlocker::new(sample_rate);
-        self.feedback_resistance = FIXED_FEEDBACK + 0.5 * DRIVE_POT;
         self.level = 0.5;
         self.reset();
     }
@@ -71,16 +84,22 @@ impl Overdrive {
     pub fn reset(&mut self) {
         self.input_cap.reset();
         self.oversampler.reset();
-        self.input_shaper.reset();
-        self.solver.reset();
-        self.stage_lowpass.reset();
+        self.stage.reset();
         self.tone.reset();
         self.output_lowpass.reset();
         self.dc.reset();
     }
 
+    /// Where this stage runs out of loop gain at its current drive setting, in
+    /// hertz. Reported because it moves with the control: more drive is more
+    /// noise gain, and less bandwidth to control the clipping with.
+    pub fn loop_bandwidth(&self) -> f32 {
+        self.stage.bandwidth()
+    }
+
     pub fn set_controls(&mut self, drive: f32, tone: f32, level: f32) {
-        self.feedback_resistance = FIXED_FEEDBACK + clamp(drive, 0.0, 1.0) * DRIVE_POT;
+        self.stage
+            .set_feedback_resistance(FIXED_FEEDBACK + clamp(drive, 0.0, 1.0) * DRIVE_POT);
         self.tone.set_position(clamp(tone, 0.0, 1.0));
         self.level = exponential(clamp(level, 0.0, 1.0), 0.02, 3.0);
     }
@@ -92,23 +111,11 @@ impl Overdrive {
         let amplified = {
             let Self {
                 oversampler,
-                input_shaper,
-                solver,
-                stage_lowpass,
+                stage,
                 tone,
-                feedback_resistance,
                 ..
             } = self;
-            let resistance = *feedback_resistance;
-            oversampler.process(signal, |sample| {
-                // Current the input network pushes into the clipping node.
-                let current = input_shaper.high(sample) / INPUT_RESISTANCE;
-                let drop = solver.solve(current, resistance, Diode::SILICON);
-                // Non-inverting stage: the output is the input plus whatever
-                // the feedback network drops across itself.
-                let stage = stage_lowpass.low(sample + drop);
-                tone.process(stage)
-            })
+            oversampler.process(signal, |sample| tone.process(stage.process(sample)))
         };
 
         self.output_lowpass.low(self.dc.process(amplified)) * self.level
@@ -189,6 +196,25 @@ mod tests {
         assert!(
             bright_treble > dark_treble * 2.0,
             "the tone control did nothing: {bright_treble} vs {dark_treble}"
+        );
+    }
+
+    #[test]
+    fn more_drive_leaves_the_loop_less_bandwidth_to_control_it_with() {
+        // The amplifier's limit, and it moves with the control: turning the
+        // drive up raises the noise gain, and a fixed gain-bandwidth product
+        // divided by a larger number is a lower corner. Part of why these
+        // pedals get smoother as they get dirtier.
+        let sample_rate = 48_000.0;
+        let clean = pedal(0.0, 0.5, sample_rate).loop_bandwidth();
+        let dirty = pedal(1.0, 0.5, sample_rate).loop_bandwidth();
+        assert!(
+            dirty < clean * 0.2,
+            "the bandwidth barely moved: {dirty} Hz against {clean} Hz"
+        );
+        assert!(
+            (8_000.0..20_000.0).contains(&dirty),
+            "at full drive the loop should give up inside the band, not at {dirty} Hz"
         );
     }
 

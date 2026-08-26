@@ -14,6 +14,7 @@ pub mod delay;
 pub mod dynamics;
 pub mod filters;
 pub mod nonlinear;
+pub mod opamp;
 pub mod ota;
 pub mod oversample;
 pub mod rectifier;

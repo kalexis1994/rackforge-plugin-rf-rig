@@ -94,20 +94,26 @@ Per 512-frame block at 48 kHz, on the development desktop, as a fraction of the
 | | µs/block | one core |
 | --- | ---: | ---: |
 | empty board | 4 | 0.0 % |
-| compressor | 17 | 0.2 % |
-| overdrive | 227 | 2.1 % |
-| distortion | 271 | 2.5 % |
-| fuzz | 535 | 5.0 % |
+| compressor | 30 | 0.3 % |
+| overdrive | 170 | 1.6 % |
+| distortion | 254 | 2.4 % |
+| fuzz | 549 | 5.1 % |
 | chorus | 55 | 0.5 % |
 | delay | 44–48 | 0.4 % |
 | reverb | 74 | 0.7 % |
-| everything engaged | 1255 | 11.8 % |
+| everything engaged | 1196 | 11.2 % |
 
 The dirt pedals dominate, because each one solves circuit equations four times
 per sample. A Raspberry Pi is several times slower per core, so measure there
 before believing anything here about headroom.
 
-One result worth keeping: replacing Cramer's rule with Gaussian elimination in
+Two results worth keeping. Solving the op-amp stage as one loop — finite
+bandwidth, both capacitors, the diodes — replaced an ideal amplifier plus a
+separate clipping solver and came out *cheaper*: the overdrive went from 227 to
+170 microseconds. More circuit for less arithmetic, because a well-posed loop
+converges in two iterations.
+
+And: replacing Cramer's rule with Gaussian elimination in
 the transistor solve — a third of the arithmetic — made the fuzz *57 % slower*,
 because the pivot search branches on data. Straight-line arithmetic wins when
 the operations are this small.

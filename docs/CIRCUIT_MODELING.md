@@ -20,7 +20,7 @@ techniques it draws on are nodal state-space models (the DK method), wave
 digital filters, and antiderivative antialiasing for memoryless shapers.
 Sources are listed in [`REFERENCES.md`](REFERENCES.md).
 
-## Five devices, five equations
+## Six devices, six equations
 
 Every nonlinear thing in RF-Rig is one of these, solved rather than shaped.
 
@@ -103,6 +103,33 @@ coefficient pair cannot produce:
 The whole curve follows: 1.08:1 at the bottom of the sustain control, 2.4:1 at
 noon, 8:1 at the top, with a soft knee throughout and under 0.3 % distortion
 until the cell's own knee is reached.
+
+### The operational amplifier
+
+An ideal op-amp forces its inverting input to follow its non-inverting one
+exactly, at every frequency, instantly. A real one has an open-loop gain that
+falls at twenty decibels per decade, so a closed-loop stage runs out of loop
+gain at `GBW / noise_gain` — and in the overdrive with its control up, that is
+about 13 kHz. Inside the band, and precisely where the diodes are making
+harmonics. Part of what people hear as a "smooth" overdrive is an amplifier
+that cannot keep up with its own clipping.
+
+`circuit/opamp.rs` solves the stage whole: the amplifier's pole by backward
+Euler, the input capacitor and resistor that set where the gain starts, the
+capacitor across the feedback resistor, and the diode pair — one loop, two
+Newton iterations, four times per sample. The slew rate and the supply are
+limits on the result rather than separate models.
+
+**Solve for the right unknown.** The first version of this solved for the
+inverting node, which is the natural way to write it. But the output is that
+node multiplied by the amplifier's per-step gain — thirty-odd — so a small
+error there arrives at the output magnified, and the stage's own state carries
+it into the next sample. The measured symptom was a pedal whose output grew
+steadily over seconds with a hot input: RMS 0.11 at a quarter second, 0.41 at
+four seconds. Solving for the output instead — the same equations, a
+better-conditioned unknown — is stable to the last digit over five seconds, and
+it turned out to be *faster*, because the well-posed loop converges in two
+iterations where the old arrangement needed a separate solver of up to six.
 
 ### The tone network
 
@@ -208,6 +235,8 @@ was, a compressor fed a two-millivolt sine put out more noise than signal.
 * The transistor stages: bias point, asymmetry, coupling, and the diodes inside
   the same solve.
 * All three tone networks, checked against a direct solve of their netlists.
+* The op-amp stages: finite gain-bandwidth, slew rate, supply, and the
+  capacitors around the loop.
 * The compressor's gain cell, the rectifier that controls it, and the
   feedback loop around both.
 * The overdrive's and distortion's frequency-dependent gain networks.
@@ -219,7 +248,6 @@ was, a compressor fed a two-millivolt sine put out more noise than signal.
 **Structurally right, numerically approximate — and marked as such in the code**
 * The distortion's and overdrive's tone networks use the correct topology with
   representative values; only the fuzz's are the published ones.
-* The op-amp gain stages are ideal apart from an explicit supply limit.
 * The reverb is a plausible spring and plate, not a measured tank.
 * The buffered pedals' input impedances are the family's published figures
   rather than solved from their buffer stages: an emitter follower's only

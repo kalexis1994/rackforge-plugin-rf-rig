@@ -11,7 +11,8 @@
 //! bass ends are what the control balances.
 
 use crate::circuit::filters::{CouplingCap, DcBlocker, OnePole};
-use crate::circuit::nonlinear::{ClipperSolver, Diode, SaturatingStage};
+use crate::circuit::nonlinear::{ClipperSolver, Diode};
+use crate::circuit::opamp::{NonInvertingStage, OpAmpDesign};
 use crate::circuit::oversample::Oversampler4;
 use crate::circuit::tonestack::{ToneNetwork, ToneStack};
 use crate::circuit::transistor::{CommonEmitterStage, FeedbackDiodes, StageDesign};
@@ -19,10 +20,13 @@ use crate::math::{clamp, exponential};
 
 /// Series resistance into the clipping node.
 const CLIPPING_SERIES_RESISTANCE: f32 = 2_200.0;
-/// The gain stage's input network: 4.7 kΩ with 0.47 µF, so the corner sits far
-/// lower than an overdrive's and the bass survives into the clipper.
+/// The gain stage's input network: 4.7 kΩ with 0.47 µF, so the corner sits at
+/// 72 Hz — far lower than an overdrive's, which is why the bass survives into
+/// the clipper.
 const INPUT_RESISTANCE: f32 = 4_700.0;
-const INPUT_CORNER_HZ: f32 = 72.0;
+const INPUT_CAPACITANCE: f32 = 470.0e-9;
+/// Across the feedback resistor.
+const FEEDBACK_CAPACITANCE: f32 = 100.0e-12;
 const FIXED_FEEDBACK: f32 = 22_000.0;
 const DISTORTION_POT: f32 = 100_000.0;
 /// This family buffers its input, so it presents a high impedance whatever the
@@ -42,15 +46,12 @@ pub struct Distortion {
     input_cap: CouplingCap,
     booster: CommonEmitterStage,
     booster_bias: f32,
-    rail: SaturatingStage,
     oversampler: Oversampler4,
-    input_shaper: OnePole,
+    stage: NonInvertingStage,
     clip_solver: ClipperSolver,
-    stage_lowpass: OnePole,
     tone: ToneStack,
     output_lowpass: OnePole,
     dc: DcBlocker,
-    feedback_resistance: f32,
     level: f32,
 }
 
@@ -73,18 +74,26 @@ impl Distortion {
         });
         self.booster.settle(inner_rate);
         self.booster_bias = self.booster.operating_point();
-        // The gain stage cannot swing past its own supply. This is the rail,
-        // not a diode: it is what a distortion pedal does before the clipping
-        // diodes ever see the signal.
-        self.rail = SaturatingStage::new(1.0, 4.0, 3.4);
-        self.input_shaper = OnePole::new(INPUT_CORNER_HZ, inner_rate);
-        self.stage_lowpass = OnePole::new(7_500.0, inner_rate);
+        // The gain stage: a real amplifier with its own bandwidth and its own
+        // supply, and no clipping diodes of its own — this family puts them
+        // after the stage, shunted to ground.
+        self.stage = NonInvertingStage::new(OpAmpDesign {
+            feedback_resistance: FIXED_FEEDBACK + 0.5 * DISTORTION_POT,
+            input_resistance: INPUT_RESISTANCE,
+            input_capacitance: INPUT_CAPACITANCE,
+            feedback_capacitance: FEEDBACK_CAPACITANCE,
+            diodes: Diode {
+                saturation_current: 0.0,
+                emission_voltage: 0.045,
+            },
+            ..OpAmpDesign::default()
+        });
+        self.stage.prepare(inner_rate);
         // The scoop is not a filter bolted on afterwards: it is what the tone
         // network does between its two branches. See `circuit::tonestack`.
         self.tone.prepare(ToneNetwork::DISTORTION, inner_rate);
         self.output_lowpass = OnePole::new(6_500.0, sample_rate);
         self.dc = DcBlocker::new(sample_rate);
-        self.feedback_resistance = FIXED_FEEDBACK + 0.5 * DISTORTION_POT;
         self.level = 0.5;
         self.reset();
     }
@@ -93,16 +102,16 @@ impl Distortion {
         self.input_cap.reset();
         self.booster.reset();
         self.oversampler.reset();
-        self.input_shaper.reset();
+        self.stage.reset();
         self.clip_solver.reset();
-        self.stage_lowpass.reset();
         self.tone.reset();
         self.output_lowpass.reset();
         self.dc.reset();
     }
 
     pub fn set_controls(&mut self, distortion: f32, tone: f32, level: f32) {
-        self.feedback_resistance = FIXED_FEEDBACK + clamp(distortion, 0.0, 1.0) * DISTORTION_POT;
+        self.stage
+            .set_feedback_resistance(FIXED_FEEDBACK + clamp(distortion, 0.0, 1.0) * DISTORTION_POT);
         self.tone.set_position(clamp(tone, 0.0, 1.0));
         self.level = exponential(clamp(level, 0.0, 1.0), 0.02, 2.0);
     }
@@ -118,32 +127,24 @@ impl Distortion {
         let signal = self.input_cap.process(input);
 
         let clipped = {
-            let rail = self.rail;
             let bias = self.booster_bias;
             let Self {
                 oversampler,
                 booster,
-                input_shaper,
+                stage,
                 clip_solver,
-                stage_lowpass,
                 tone,
-                feedback_resistance,
                 ..
             } = self;
-            let resistance = *feedback_resistance;
             oversampler.process(signal, |sample| {
                 // The booster runs oversampled with everything else: it clips,
                 // so it generates harmonics that must not fold back.
                 let boosted = booster.process(sample) - bias;
-                let current = input_shaper.high(boosted) / INPUT_RESISTANCE;
-                // Op-amp gain: the input network's current across the feedback
-                // resistance, added to the signal already at the node.
-                let amplified = rail.process(boosted + current * resistance);
-                let filtered = stage_lowpass.low(amplified);
+                let amplified = stage.process(boosted);
                 // Hard clip: the node is pulled to the diodes' forward drop
                 // through the series resistor.
                 let clipped = clip_solver.solve(
-                    filtered / CLIPPING_SERIES_RESISTANCE,
+                    amplified / CLIPPING_SERIES_RESISTANCE,
                     CLIPPING_SERIES_RESISTANCE,
                     Diode::SILICON,
                 );
