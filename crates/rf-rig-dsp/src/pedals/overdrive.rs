@@ -18,7 +18,8 @@
 use crate::circuit::filters::{CouplingCap, DcBlocker, OnePole};
 use crate::circuit::nonlinear::{ClipperSolver, Diode};
 use crate::circuit::oversample::Oversampler4;
-use crate::math::{clamp, exponential, lerp};
+use crate::circuit::tonestack::{ToneNetwork, ToneStack};
+use crate::math::{clamp, exponential};
 
 /// Series resistance from the inverting node to the clipping network.
 const INPUT_RESISTANCE: f32 = 4_700.0;
@@ -36,11 +37,10 @@ pub struct Overdrive {
     input_shaper: OnePole,
     solver: ClipperSolver,
     stage_lowpass: OnePole,
-    tone_split: OnePole,
+    tone: ToneStack,
     output_lowpass: OnePole,
     dc: DcBlocker,
     feedback_resistance: f32,
-    brightness: f32,
     level: f32,
 }
 
@@ -52,11 +52,13 @@ impl Overdrive {
         // The small capacitor across the feedback resistor. It is what stops
         // the stage from amplifying the fizz its own clipping creates.
         self.stage_lowpass = OnePole::new(6_000.0, inner_rate);
-        self.tone_split = OnePole::new(1_000.0, sample_rate);
+        // The tone network runs inside the oversampled section, where the
+        // bilinear transform barely warps it and where the real circuit has it:
+        // in the continuous path, right after the clipping stage.
+        self.tone.prepare(ToneNetwork::OVERDRIVE, inner_rate);
         self.output_lowpass = OnePole::new(5_500.0, sample_rate);
         self.dc = DcBlocker::new(sample_rate);
         self.feedback_resistance = FIXED_FEEDBACK + 0.5 * DRIVE_POT;
-        self.brightness = 1.0;
         self.level = 0.5;
         self.reset();
     }
@@ -67,14 +69,14 @@ impl Overdrive {
         self.input_shaper.reset();
         self.solver.reset();
         self.stage_lowpass.reset();
-        self.tone_split.reset();
+        self.tone.reset();
         self.output_lowpass.reset();
         self.dc.reset();
     }
 
     pub fn set_controls(&mut self, drive: f32, tone: f32, level: f32) {
         self.feedback_resistance = FIXED_FEEDBACK + clamp(drive, 0.0, 1.0) * DRIVE_POT;
-        self.brightness = lerp(0.15, 2.4, clamp(tone, 0.0, 1.0));
+        self.tone.set_position(clamp(tone, 0.0, 1.0));
         self.level = exponential(clamp(level, 0.0, 1.0), 0.02, 3.0);
     }
 
@@ -88,6 +90,7 @@ impl Overdrive {
                 input_shaper,
                 solver,
                 stage_lowpass,
+                tone,
                 feedback_resistance,
                 ..
             } = self;
@@ -98,15 +101,12 @@ impl Overdrive {
                 let drop = solver.solve(current, resistance, Diode::SILICON);
                 // Non-inverting stage: the output is the input plus whatever
                 // the feedback network drops across itself.
-                stage_lowpass.low(sample + drop)
+                let stage = stage_lowpass.low(sample + drop);
+                tone.process(stage)
             })
         };
 
-        // Tone: a single tilt around 1 kHz, then the fixed output rolloff.
-        let low = self.tone_split.low(amplified);
-        let high = amplified - low;
-        let toned = low + high * self.brightness;
-        self.output_lowpass.low(self.dc.process(toned)) * self.level
+        self.output_lowpass.low(self.dc.process(amplified)) * self.level
     }
 }
 
@@ -143,22 +143,27 @@ mod tests {
 
     #[test]
     fn the_gain_stage_favours_the_midrange_over_the_bass() {
-        // The signature of this topology: at the same input level, a low note
-        // is amplified less than a midrange note, because the series capacitor
-        // has not started conducting yet.
+        // The signature of this topology: the series capacitor at the
+        // inverting input has barely started conducting at 82 Hz, so the stage
+        // amplifies a low note far less than a midrange one.
+        //
+        // Measured below the clipping knee on purpose. Higher up the midrange
+        // is already compressing while the bass is still linear, which hides
+        // the very difference this test is about — a comparison is only a
+        // comparison when both sides are the same experiment.
         let sample_rate = 48_000.0;
-        let mut pedal = pedal(0.6, 0.5, sample_rate);
-        let bass = render_sine(82.0, 0.02, sample_rate, 16_384, |sample| {
+        let mut pedal = pedal(0.6, 1.0, sample_rate);
+        let bass = render_sine(82.0, 0.003, sample_rate, 16_384, |sample| {
             pedal.process(sample)
         });
         pedal.reset();
-        let middle = render_sine(1_000.0, 0.02, sample_rate, 16_384, |sample| {
+        let middle = render_sine(1_000.0, 0.003, sample_rate, 16_384, |sample| {
             pedal.process(sample)
         });
         let bass_level = magnitude_at(&bass, 82.0, sample_rate);
         let middle_level = magnitude_at(&middle, 1_000.0, sample_rate);
         assert!(
-            middle_level > bass_level * 2.0,
+            middle_level > bass_level * 3.0,
             "no midrange emphasis: {middle_level} vs {bass_level}"
         );
     }

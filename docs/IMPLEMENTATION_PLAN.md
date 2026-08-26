@@ -10,9 +10,9 @@
 * Adapter: `wasm-v1` component, sample-accurate automation, state save/load.
 * Package: schema-2 manifest declaring a mono input and stereo output bus,
   generated metadata, generated branding, static PLAY surface.
-* Tests: 82 covering the contract, each circuit block, each pedal's behaviour,
+* Tests: 103 covering the contract, each circuit block, each pedal's behaviour,
   the chain and the adapter — plus a guard that loads the built component in the
-  host's own runtime.
+  host's own runtime, and a bench that reports what the board costs.
 
 ## Next: make it playable
 
@@ -36,23 +36,56 @@ before designing around it.
 Focusrite, at a real buffer size. Nothing below this line should be trusted over
 that.
 
-## Fidelity work, in order of expected audible return
+## Fidelity work
 
-1. **Tone stacks solved as networks.** The fuzz and distortion tone controls are
-   the largest approximations left, and they are what a player hears first. A
-   nodal solve of the two-branch junction, checked against the published
-   transfer function of the circuit family.
-2. **Loading between pedals.** A real chain interacts through input and output
-   impedances; that is why a fuzz behaves differently after a buffered pedal.
-   The chain would carry a source impedance alongside the sample.
-3. **A proper transistor stage.** Ebers-Moll with emitter degeneration, instead
-   of the asymmetric soft limit standing in for the booster.
+### Done, and what it bought
+
+1. **Tone stacks solved as networks** (`circuit/tonestack.rs`). Three nodes, the
+   pot's two halves and the following stage's load, eliminated into a biquad and
+   checked against a direct complex solve of the same netlist at every control
+   position (within 0.15 dB). The midrange scoop and its travel across the
+   control are now consequences of component values. The fuzz's values are the
+   published ones; the distortion's and overdrive's are the right topology with
+   representative values, which is a six-number change away from canonical.
+2. **The compressor's gain cell** (`circuit/ota.rs`). The real transconductance
+   equation, with the loop's ceiling derived rather than tuned. Before this, the
+   pedal produced four decibels of gain reduction across a thirty-seven decibel
+   input range; it now compresses roughly 4.5:1 at the top of the sustain
+   control and stays under 0.2 % distorted until a transient reaches the cell's
+   knee.
+3. **Transistor stages from Ebers-Moll** (`circuit/transistor.rs`). Three
+   unknowns, three node equations, the clipping diodes inside the same solve,
+   and the input coupling capacitor integrated alongside. The fuzz's clipping
+   stages now bias at 0.97 V — the low collector voltage this family's service
+   notes report — and clip asymmetrically as a consequence.
+4. **Two instrument faults fixed**, both of which had silently coloured every
+   earlier measurement: spectral leakage giving a 0.62 % distortion floor, and
+   single-sample probing of a stateful shaper reading half the gain. See
+   [`MEASUREMENT.md`](MEASUREMENT.md).
+5. **A numerical bug in the antialiased shaper**: its fallback threshold was
+   absolute, so small signals divided two nearly equal antiderivatives and
+   produced noise. A two-millivolt sine through the compressor was more noise
+   than signal.
+
+### Next, in order of expected audible return
+
+1. **Loading between pedals.** A real chain interacts through input and output
+   impedances, which is why a fuzz behaves differently after a buffered pedal
+   than straight from the guitar. The transistor stage already has a genuine
+   input impedance and a coupling capacitor, so the remaining work is to carry a
+   source impedance along the chain and let each input stage see it — the corner
+   frequency moves, not just the level.
+2. **The rectifier that drives the compressor's bias.** A modelled current
+   source instead of a linear law, which is what decides how the pedal recovers
+   after a chord.
+3. **Component tolerance.** A seed per instance, values drifting inside their
+   stated tolerance, so two instances are not identical — the reason two units
+   of the same pedal never quite match.
 4. **A clock-accurate bucket-brigade line.** Resampling at the clock rate rather
    than reading a fractional delay: the aliasing of a real BBD is part of its
    sound, and the current model band-limits it away.
-5. **Component tolerance.** A seed per instance, drifting values within their
-   stated tolerance, so two instances are not identical — the reason two units
-   of the same pedal never quite match.
+5. **Canonical values for the remaining two tone networks**, from a trace or a
+   published analysis.
 
 ## Pedals not yet on the board
 
@@ -71,9 +104,19 @@ that.
 
 ## Performance
 
-Not yet profiled. The clipping solve is the hot spot: four oversampled
-sub-samples per sample per engaged dirt pedal, each with up to six Newton
-iterations and one exponential apiece. Options, cheapest first: cap iterations
-at three once convergence is measured, drop to 2× oversampling for the
-soft-clipping stages, enable `+simd128` for the wasm build, or precompute the
-diode branch as a table. Measure on the Raspberry Pi before choosing.
+Measured, per 512-frame block at 48 kHz on the development desktop: the whole
+board engaged costs 11.8 % of one core, and the fuzz — three transistor stages,
+each solved four times per sample — is 5.0 % of that. The table is in
+[`MEASUREMENT.md`](MEASUREMENT.md), and the bench that produces it is
+`cargo test --release -p rf-rig-dsp --test bench_blocks -- --ignored --nocapture`.
+
+Two decisions already came out of it. Newton runs two iterations per sample, not
+three, because a test against a twelve-iteration reference puts the difference
+under 1 %; that took the fuzz from 808 to 535 microseconds. And the 3x3 solve
+stays on Cramer's rule, because Gaussian elimination — a third of the arithmetic
+— was 57 % *slower* on this machine: its pivot search branches on data.
+
+What is left, if a Raspberry Pi asks for more: a faster `exp` (the solvers are
+dominated by it, and a diode model does not need `libm` accuracy), 2x
+oversampling for the soft-clipping stages, or `+simd128` for the wasm build.
+Measure on the Pi before choosing.

@@ -9,3 +9,6 @@ repository.workspace = true
 [dependencies]
 rf-rig-contract.workspace = true
 libm = { workspace = true }
+
+[dev-dependencies]
+rf-rig-contract.workspace = true

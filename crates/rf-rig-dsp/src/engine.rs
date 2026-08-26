@@ -494,7 +494,15 @@ mod tests {
                 "{} produced a non-finite sample",
                 factory.id
             );
-            assert!(peak(&left) < 8.0, "{} is far too loud", factory.id);
+            // A factory board fed an ordinary guitar level must not clip the
+            // host's output. This is the check that catches a recalibrated
+            // pedal quietly making every preset too hot.
+            assert!(
+                peak(&left) < 1.0 && peak(&right) < 1.0,
+                "{} peaks at {} for a 0.2 V input",
+                factory.id,
+                peak(&left).max(peak(&right))
+            );
         }
     }
 

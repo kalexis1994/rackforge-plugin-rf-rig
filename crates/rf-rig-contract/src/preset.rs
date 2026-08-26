@@ -26,7 +26,7 @@ pub const PRESETS: [Preset; PRESET_COUNT] = [
             (COMP_ENGAGED, 1.0),
             (COMP_SUSTAIN, 0.45),
             (COMP_ATTACK, 0.55),
-            (COMP_LEVEL, 0.55),
+            (COMP_LEVEL, 0.38),
             (REVERB_ENGAGED, 1.0),
             (REVERB_DECAY, 0.3),
             (REVERB_TONE, 0.5),
@@ -41,7 +41,7 @@ pub const PRESETS: [Preset; PRESET_COUNT] = [
         values: &[
             (COMP_ENGAGED, 1.0),
             (COMP_SUSTAIN, 0.35),
-            (COMP_LEVEL, 0.5),
+            (COMP_LEVEL, 0.36),
             (DRIVE_ENGAGED, 1.0),
             (DRIVE_DRIVE, 0.35),
             (DRIVE_TONE, 0.55),
@@ -92,6 +92,7 @@ pub const PRESETS: [Preset; PRESET_COUNT] = [
         values: &[
             (COMP_ENGAGED, 1.0),
             (COMP_SUSTAIN, 0.3),
+            (COMP_LEVEL, 0.35),
             (REVERB_ENGAGED, 1.0),
             (REVERB_MODE, 0.0),
             (REVERB_DECAY, 0.7),

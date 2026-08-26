@@ -36,6 +36,13 @@ line, differing only in where the diodes sit — which is exactly how the two
 pedals differ. Change the diode to germanium and the pedal cleans up earlier,
 because the datasheet says it does.
 
+The same applies to the parts that are not clipping. A transistor stage is
+solved as three node equations against Ebers-Moll, so its bias point — and the
+asymmetry that follows from it — is a consequence rather than a setting. A tone
+control is solved as the network it is: two RC branches bridged by a pot, whose
+midrange scoop is 6 dB deep and *travels* from 1.6 kHz to 680 Hz as the knob
+turns, because that is what the network does.
+
 The method, and an honest list of what is still approximated, is in
 [`docs/CIRCUIT_MODELING.md`](docs/CIRCUIT_MODELING.md).
 
@@ -43,10 +50,10 @@ The method, and an honest list of what is still approximated, is in
 
 | Pedal | Circuit family |
 | --- | --- |
-| **Compressor** | Transconductance amplifier with the rectifier on its own output: enormous ratio, soft knee, program-dependent recovery. |
+| **Compressor** | An OTA gain cell, `Iout = Iabc·tanh(Vin/2Vt)`, with the rectifier stealing from its bias current: enormous ratio, soft knee, program-dependent recovery, and a cell that thickens transients because it is linear over only ±25 mV. |
 | **Overdrive** | Op-amp stage with a diode pair across the feedback resistor, and an input network that stops amplifying below ~720 Hz. That is the mid-hump, and the reason it cleans up on the guitar's volume. |
 | **Distortion** | Booster into a high-gain stage that hard-clips to ground, behind a scooped tone network. |
-| **Fuzz** | Two cascaded feedback-clipping stages — square by the second one — into a lowpass/highpass blend. |
+| **Fuzz** | A booster into two transistor clipping stages, each solved from Ebers-Moll with its diodes inside the same system. They bias at 0.97 V and clip asymmetrically because that is how much room the collector has. |
 | **Chorus** | Bucket-brigade line with companding and a swept clock, so the delayed copy is genuinely pitch-shifted rather than crossfaded. |
 | **Delay** | The same line as an echo: band-limited *inside* the feedback loop so each repeat darkens, plus a clean digital mode. |
 | **Reverb** | A dispersive spring tank, or a plate built as a feedback delay network. |

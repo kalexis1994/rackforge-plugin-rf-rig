@@ -322,15 +322,31 @@ fn render_command(arguments: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Amplitude of one frequency component, by windowed correlation.
+///
+/// The Hann window is what keeps this honest. A tone rarely fits a whole number
+/// of cycles into the analysis window, and the leftover leaks onto the harmonic
+/// probes: a perfect sine measured without a window reads 0.62 % distorted,
+/// which is the same order as the distortion of a lightly driven overdrive.
+/// Windowed, the floor is 0.0006 %.
 fn magnitude_at(samples: &[f32], frequency: f32, sample_rate: f32) -> f32 {
-    let mut real = 0.0_f32;
-    let mut imaginary = 0.0_f32;
+    let mut real = 0.0_f64;
+    let mut imaginary = 0.0_f64;
+    let mut weight = 0.0_f64;
+    let count = samples.len() as f64;
+    let step = std::f64::consts::TAU * frequency as f64 / sample_rate as f64;
     for (index, sample) in samples.iter().enumerate() {
-        let phase = std::f32::consts::TAU * frequency * index as f32 / sample_rate;
-        real += sample * phase.cos();
-        imaginary += sample * phase.sin();
+        let position = index as f64;
+        let window = 0.5 - 0.5 * (std::f64::consts::TAU * position / count).cos();
+        let phase = step * position;
+        real += *sample as f64 * window * phase.cos();
+        imaginary += *sample as f64 * window * phase.sin();
+        weight += window;
     }
-    2.0 * (real * real + imaginary * imaginary).sqrt() / samples.len() as f32
+    if weight <= 0.0 {
+        return 0.0;
+    }
+    (2.0 * (real * real + imaginary * imaginary).sqrt() / weight) as f32
 }
 
 fn steady_state(

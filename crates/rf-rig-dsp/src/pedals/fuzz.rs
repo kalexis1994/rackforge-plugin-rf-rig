@@ -1,68 +1,99 @@
-//! Fuzz — two cascaded feedback-clipping stages and a scooped tone network.
+//! Fuzz — a booster into two cascaded clipping stages, into a scooped tone
+//! network.
 //!
-//! This family has far more gain than an overdrive and puts a clipping pair
-//! around *each* of two stages. By the second one the waveform is essentially a
+//! This family has far more gain than an overdrive and puts diodes around
+//! *each* of two stages. By the second one the waveform is essentially a
 //! square, which is why the sustain seems endless and why the pedal is so
 //! sensitive to what is in front of it.
 //!
-//! The stages are inverting: the output is the drop across the feedback
-//! network, negated. Two inversions cancel, so the pedal is in phase with the
-//! signal that entered it.
+//! Both stages are solved from Ebers-Moll together with their diodes
+//! (`circuit::transistor`), so the transistor and the pair argue about the
+//! collector voltage the way they do in the circuit. The stages invert, and two
+//! inversions cancel, so the pedal is in phase with the signal that entered it.
+//! The asymmetry, the way the bias drifts under a hot signal, and the gating
+//! that follows are consequences of that solve rather than features added on
+//! top.
 //!
-//! Known approximation: the tone network here is a two-path blend plus a fixed
-//! midrange cut. A real tone stack of this family is a resistive junction of
-//! two RC branches whose notch depth changes with the control; solving that
-//! network properly is on the plan in `docs/IMPLEMENTATION_PLAN.md`.
+//! The tone stack is the family's own, solved from its component values in
+//! `circuit::tonestack`: two RC branches bridged by the pot, so the midrange
+//! scoop and the way it travels across the control are consequences of the
+//! network rather than a notch placed by hand.
 
-use crate::circuit::filters::{Biquad, CouplingCap, DcBlocker, OnePole};
-use crate::circuit::nonlinear::{ClipperSolver, Diode};
+use crate::circuit::filters::{CouplingCap, DcBlocker, OnePole};
 use crate::circuit::oversample::Oversampler4;
-use crate::math::{clamp, exponential, lerp};
+use crate::circuit::tonestack::{ToneNetwork, ToneStack};
+use crate::circuit::transistor::{CommonEmitterStage, FeedbackDiodes, StageDesign};
+use crate::math::{clamp, exponential};
 
+/// Series resistance into the booster that opens the circuit. The sustain
+/// control sits after it, which is why this family cleans up so little when the
+/// control comes down: the signal has already been amplified by then.
+const BOOSTER_INPUT_RESISTANCE: f32 = 39_000.0;
+const BOOSTER_COLLECTOR_RESISTANCE: f32 = 10_000.0;
+const BOOSTER_FEEDBACK_RESISTANCE: f32 = 470_000.0;
+const BOOSTER_EMITTER_RESISTANCE: f32 = 390.0;
 /// Series resistance into each clipping stage.
 const STAGE_INPUT_RESISTANCE: f32 = 10_000.0;
-/// Collector feedback resistance.
+/// Collector load.
+const STAGE_COLLECTOR_RESISTANCE: f32 = 10_000.0;
+/// Collector-to-base feedback, which both biases the stage and carries the
+/// clipping diodes.
 const STAGE_FEEDBACK_RESISTANCE: f32 = 100_000.0;
-/// 0.1 µF into 10 kΩ between the stages.
-const STAGE_CORNER_HZ: f32 = 160.0;
-/// 470 pF across the 100 kΩ feedback resistor.
+/// Emitter degeneration, unbypassed.
+const STAGE_EMITTER_RESISTANCE: f32 = 100.0;
+/// 0.1 µF coupling into each stage: with 10 kΩ that is a 160 Hz corner.
+const STAGE_COUPLING_FARADS: f32 = 100.0e-9;
+/// 470 pF across the 100 kΩ feedback resistor, which is what stops each stage
+/// from amplifying the fizz the one before it made.
 const STAGE_ROLLOFF_HZ: f32 = 3_400.0;
-/// The tone network's two branches: 39 kΩ with 10 nF, and 100 kΩ with 3.9 nF.
-const TONE_LOW_HZ: f32 = 408.0;
-const TONE_HIGH_HZ: f32 = 408.0;
 /// The output buffer after the tone stack. The clipping stages hand over about
-/// six tenths of a volt and the tone network throws most of that away; this is
-/// the recovery that makes the pedal louder than the guitar, which is the whole
-/// reason it has a volume control rather than a level trim.
-const OUTPUT_MAKEUP: f32 = 6.0;
+/// six tenths of a volt and the tone network throws ten to sixteen decibels of
+/// that away; this is the recovery that makes the pedal louder than the guitar,
+/// which is the whole reason it has a volume control rather than a level trim.
+const OUTPUT_MAKEUP: f32 = 14.0;
 
 #[derive(Clone, Copy, Default)]
 struct ClippingStage {
-    coupling: CouplingCap,
-    solver: ClipperSolver,
+    stage: CommonEmitterStage,
     rolloff: OnePole,
+    bias: f32,
 }
 
 impl ClippingStage {
     fn prepare(&mut self, inner_rate: f32) {
-        self.coupling = CouplingCap::new(STAGE_CORNER_HZ, inner_rate);
+        self.stage = CommonEmitterStage::new(StageDesign {
+            diodes: FeedbackDiodes::SILICON,
+            input_resistance: STAGE_INPUT_RESISTANCE,
+            collector_resistance: STAGE_COLLECTOR_RESISTANCE,
+            feedback_resistance: STAGE_FEEDBACK_RESISTANCE,
+            emitter_resistance: STAGE_EMITTER_RESISTANCE,
+            coupling_capacitance: STAGE_COUPLING_FARADS,
+            ..StageDesign::default()
+        });
+        self.stage.settle(inner_rate);
+        self.bias = self.stage.operating_point();
         self.rolloff = OnePole::new(STAGE_ROLLOFF_HZ, inner_rate);
-        self.reset();
-    }
-
-    fn reset(&mut self) {
-        self.coupling.reset();
-        self.solver.reset();
         self.rolloff.reset();
     }
 
+    fn reset(&mut self) {
+        self.stage.reset();
+        self.rolloff.reset();
+    }
+
+    /// The stage's operating point, for tests that want to see where the bias
+    /// network parked it.
+    fn operating_point(&self) -> f32 {
+        self.stage.operating_point()
+    }
+
+    /// Takes a signal referred to ground and returns one referred to ground:
+    /// the stage's own coupling capacitor blocks whatever bias arrives, and the
+    /// quiescent collector voltage is removed on the way out.
     #[inline]
     fn process(&mut self, input: f32) -> f32 {
-        let current = self.coupling.process(input) / STAGE_INPUT_RESISTANCE;
-        let drop = self
-            .solver
-            .solve(current, STAGE_FEEDBACK_RESISTANCE, Diode::SILICON);
-        -self.rolloff.low(drop)
+        let collector = self.stage.process(input);
+        self.rolloff.low(collector - self.bias)
     }
 }
 
@@ -70,14 +101,13 @@ impl ClippingStage {
 pub struct Fuzz {
     input_cap: CouplingCap,
     oversampler: Oversampler4,
+    booster: CommonEmitterStage,
+    booster_bias: f32,
     first: ClippingStage,
     second: ClippingStage,
-    tone_low: OnePole,
-    tone_high: OnePole,
-    scoop: Biquad,
+    tone: ToneStack,
     dc: DcBlocker,
     sustain: f32,
-    tone: f32,
     volume: f32,
 }
 
@@ -85,15 +115,22 @@ impl Fuzz {
     pub fn prepare(&mut self, sample_rate: f32) {
         let inner_rate = sample_rate * Oversampler4::FACTOR as f32;
         self.input_cap = CouplingCap::new(16.0, sample_rate);
+        self.booster = CommonEmitterStage::new(StageDesign {
+            diodes: FeedbackDiodes::NONE,
+            input_resistance: BOOSTER_INPUT_RESISTANCE,
+            collector_resistance: BOOSTER_COLLECTOR_RESISTANCE,
+            feedback_resistance: BOOSTER_FEEDBACK_RESISTANCE,
+            emitter_resistance: BOOSTER_EMITTER_RESISTANCE,
+            coupling_capacitance: STAGE_COUPLING_FARADS,
+            ..StageDesign::default()
+        });
+        self.booster.settle(inner_rate);
+        self.booster_bias = self.booster.operating_point();
         self.first.prepare(inner_rate);
         self.second.prepare(inner_rate);
-        self.tone_low = OnePole::new(TONE_LOW_HZ, sample_rate);
-        self.tone_high = OnePole::new(TONE_HIGH_HZ, sample_rate);
-        self.scoop = Biquad::default();
-        self.scoop.set_peaking(1_000.0, 0.7, -8.0, sample_rate);
+        self.tone.prepare(ToneNetwork::FUZZ, inner_rate);
         self.dc = DcBlocker::new(sample_rate);
         self.sustain = 0.3;
-        self.tone = 0.5;
         self.volume = 0.4;
         self.reset();
     }
@@ -101,42 +138,56 @@ impl Fuzz {
     pub fn reset(&mut self) {
         self.input_cap.reset();
         self.oversampler.reset();
+        self.booster.reset();
         self.first.reset();
         self.second.reset();
-        self.tone_low.reset();
-        self.tone_high.reset();
-        self.scoop.reset();
+        self.tone.reset();
         self.dc.reset();
     }
 
     pub fn set_controls(&mut self, sustain: f32, tone: f32, volume: f32) {
-        // The sustain control is an attenuator ahead of the first stage. All
-        // of the gain is fixed by the circuit; this decides how much signal
-        // meets it.
-        self.sustain = exponential(clamp(sustain, 0.0, 1.0), 0.002, 1.0);
-        self.tone = clamp(tone, 0.0, 1.0);
+        // The sustain control is the attenuator between the booster and the
+        // first clipping stage. All of the gain is fixed by the circuit; this
+        // decides how much of it meets the clippers.
+        self.sustain = exponential(clamp(sustain, 0.0, 1.0), 0.004, 1.0);
+        self.tone.set_position(clamp(tone, 0.0, 1.0));
         self.volume = exponential(clamp(volume, 0.0, 1.0), 0.02, 2.5);
+    }
+
+    /// Where the bias network parked each stage, in volts: the booster first,
+    /// then the two clipping stages. Published service voltages for this family
+    /// put the clipping stages near a volt, so this is a number anyone can
+    /// check against a real unit with a meter.
+    pub fn operating_points(&self) -> [f32; 3] {
+        [
+            self.booster.operating_point(),
+            self.first.operating_point(),
+            self.second.operating_point(),
+        ]
     }
 
     #[inline]
     pub fn process(&mut self, input: f32) -> f32 {
-        let signal = self.input_cap.process(input) * self.sustain;
+        let signal = self.input_cap.process(input);
 
         let fuzzed = {
+            let sustain = self.sustain;
+            let bias = self.booster_bias;
             let Self {
                 oversampler,
+                booster,
                 first,
                 second,
+                tone,
                 ..
             } = self;
-            oversampler.process(signal, |sample| second.process(first.process(sample)))
+            oversampler.process(signal, |sample| {
+                let boosted = (booster.process(sample) - bias) * sustain;
+                tone.process(second.process(first.process(boosted)))
+            })
         };
 
-        let low = self.tone_low.low(fuzzed);
-        let high = self.tone_high.high(fuzzed);
-        let blended = lerp(low, high, self.tone);
-        let scooped = self.scoop.process(blended);
-        self.dc.process(scooped) * self.volume * OUTPUT_MAKEUP
+        self.dc.process(fuzzed) * self.volume * OUTPUT_MAKEUP
     }
 }
 
@@ -150,6 +201,26 @@ mod tests {
         pedal.prepare(sample_rate);
         pedal.set_controls(sustain, tone, 0.5);
         pedal
+    }
+
+    #[test]
+    fn every_stage_biases_where_the_network_says() {
+        // Published service voltages for this family put the clipping stages
+        // near a volt at the collector, with the base a forward drop up. The
+        // solver is not told that; it is where the bias network lands.
+        let mut pedal = Fuzz::default();
+        pedal.prepare(48_000.0);
+        let [booster, first, second] = pedal.operating_points();
+        for collector in [first, second] {
+            assert!(
+                (0.5..2.0).contains(&collector),
+                "a clipping stage biased to {collector} V"
+            );
+        }
+        assert!(
+            (2.0..8.0).contains(&booster),
+            "the booster biased to {booster} V"
+        );
     }
 
     #[test]

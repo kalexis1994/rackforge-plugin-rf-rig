@@ -5,6 +5,26 @@ lab tool measures the model; the same procedure with an interface and a real
 pedal measures the circuit. Comparing the two is only meaningful when both sides
 are the *same* experiment.
 
+## Two faults this project has already found in its own rulers
+
+Both were found by disbelieving a number, and both had been quietly present in
+every measurement taken before them.
+
+**Spectral leakage.** The distortion analyser correlates the signal against each
+harmonic. A tone rarely fits a whole number of cycles into the analysis window,
+and the leftover leaks onto the harmonic probes: measured bare, a *perfect* sine
+read 0.62 % distorted. That is the same order as a lightly driven overdrive, so
+every clean-end reading taken before the fix was meaningless. A Hann window took
+the floor to 0.0006 %.
+
+**Single-sample probing of a stateful shaper.** The antialiased `tanh` returns
+the average slope since the previous input, so asking it about one isolated
+sample reads half the gain the cell actually has. Gain is measured with a tone,
+the way a bench would.
+
+The lesson both share: before believing a difference, check what the instrument
+reports for a case where the answer is known.
+
 ## The trap this exists to avoid
 
 Two signals normalised by different references are not a comparison. Neither is
@@ -61,6 +81,36 @@ With an interface, a DI box and a load resistor:
 Record the input level, the control positions, the interface gain and the
 temperature. A measurement without its conditions cannot be compared to
 anything later.
+
+## What the board costs
+
+```bash
+cargo test --release -p rf-rig-dsp --test bench_blocks -- --ignored --nocapture
+```
+
+Per 512-frame block at 48 kHz, on the development desktop, as a fraction of the
+10.67 ms budget:
+
+| | µs/block | one core |
+| --- | ---: | ---: |
+| empty board | 4 | 0.0 % |
+| compressor | 17 | 0.2 % |
+| overdrive | 227 | 2.1 % |
+| distortion | 271 | 2.5 % |
+| fuzz | 535 | 5.0 % |
+| chorus | 55 | 0.5 % |
+| delay | 44–48 | 0.4 % |
+| reverb | 74 | 0.7 % |
+| everything engaged | 1255 | 11.8 % |
+
+The dirt pedals dominate, because each one solves circuit equations four times
+per sample. A Raspberry Pi is several times slower per core, so measure there
+before believing anything here about headroom.
+
+One result worth keeping: replacing Cramer's rule with Gaussian elimination in
+the transistor solve — a third of the arithmetic — made the fuzz *57 % slower*,
+because the pivot search branches on data. Straight-line arithmetic wins when
+the operations are this small.
 
 ## Judging a change
 

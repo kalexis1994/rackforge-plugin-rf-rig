@@ -188,6 +188,27 @@ impl Biquad {
         self.a2 = (1.0 - alpha / amplitude) / a0;
     }
 
+    /// Installs coefficients computed elsewhere — by a solved network, for
+    /// instance. The convention is the usual one: the denominator's leading
+    /// coefficient is already normalised to 1.
+    pub fn set_coefficients(&mut self, b0: f32, b1: f32, b2: f32, a1: f32, a2: f32) {
+        if !(b0.is_finite() && b1.is_finite() && b2.is_finite() && a1.is_finite() && a2.is_finite())
+        {
+            return;
+        }
+        self.b0 = b0;
+        self.b1 = b1;
+        self.b2 = b2;
+        self.a1 = a1;
+        self.a2 = a2;
+    }
+
+    /// `[b0, b1, b2, a1, a2]`, for tests that need to evaluate the response
+    /// rather than measure it.
+    pub fn coefficients(&self) -> [f32; 5] {
+        [self.b0, self.b1, self.b2, self.a1, self.a2]
+    }
+
     fn intermediates(cutoff_hz: f32, q: f32, sample_rate: f32) -> (f32, f32) {
         let cutoff = clamp(cutoff_hz, 10.0, sample_rate * 0.45);
         let omega = TAU * cutoff / sample_rate;

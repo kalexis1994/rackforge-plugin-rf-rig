@@ -13,4 +13,7 @@ pub mod delay;
 pub mod dynamics;
 pub mod filters;
 pub mod nonlinear;
+pub mod ota;
 pub mod oversample;
+pub mod tonestack;
+pub mod transistor;

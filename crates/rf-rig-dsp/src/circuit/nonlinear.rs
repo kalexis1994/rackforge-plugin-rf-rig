@@ -182,7 +182,20 @@ pub struct SoftLimiter {
 }
 
 impl SoftLimiter {
-    const EPSILON: f32 = 1.0e-5;
+    /// How close two consecutive inputs may be before the difference quotient
+    /// is abandoned for the midpoint.
+    ///
+    /// This is a numerical limit, not a taste one. The quotient divides a
+    /// difference of antiderivatives by a difference of inputs, and in `f32`
+    /// the numerator has only a handful of significant digits left once the
+    /// two are close. Measured symptom, before this was relative: a compressor
+    /// fed a two-millivolt sine put out more noise than signal, because its
+    /// gain cell works precisely in the region where the quotient collapses.
+    ///
+    /// Falling back costs nothing musically. The exact quotient only matters
+    /// where the curve bends, and where the curve bends the input is nowhere
+    /// near this threshold.
+    const RELATIVE_EPSILON: f32 = 1.0e-3;
 
     pub fn reset(&mut self) {
         self.previous_input = 0.0;
@@ -201,7 +214,8 @@ impl SoftLimiter {
     pub fn process(&mut self, input: f32) -> f32 {
         let antiderivative = Self::antiderivative(input);
         let difference = input - self.previous_input;
-        let output = if abs(difference) < Self::EPSILON {
+        let threshold = Self::RELATIVE_EPSILON * (1.0 + abs(input));
+        let output = if abs(difference) < threshold {
             tanh((input + self.previous_input) * 0.5)
         } else {
             (antiderivative - self.previous_antiderivative) / difference
@@ -282,6 +296,27 @@ mod tests {
             }
         }
         assert!(worst < 0.02, "ADAA drifted from tanh by {worst}");
+    }
+
+    #[test]
+    fn a_small_signal_comes_through_clean() {
+        // The region where the antiderivative quotient is worst conditioned is
+        // also the region where the shaper is supposed to be a wire.
+        let mut limiter = SoftLimiter::default();
+        let rendered = crate::testing::render_sine(220.0, 0.0013, 48_000.0, 8_192, |sample| {
+            limiter.process(sample)
+        });
+        let distortion = crate::testing::total_harmonic_distortion(&rendered, 220.0, 48_000.0);
+        let fundamental = crate::testing::magnitude_at(&rendered, 220.0, 48_000.0);
+        let noise = crate::testing::rms(&rendered) - fundamental / core::f32::consts::SQRT_2;
+        assert!(
+            distortion < 0.001,
+            "a two-millivolt sine came out {distortion} distorted"
+        );
+        assert!(
+            noise.abs() < fundamental * 0.02,
+            "the shaper added {noise} of anything-but-signal"
+        );
     }
 
     #[test]
