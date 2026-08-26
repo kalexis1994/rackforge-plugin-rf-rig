@@ -58,7 +58,14 @@ The method, and an honest list of what is still approximated, is in
 | **Delay** | The same line as an echo: band-limited *inside* the feedback loop so each repeat darkens, plus a clean digital mode. |
 | **Reverb** | A dispersive spring tank, or a plate built as a feedback delay network. |
 
-Plus a rig strip: input trim, output level and a noise gate.
+Plus a rig strip: a source selector, input trim, output level and a noise gate.
+
+The source selector is not a tone control. It tells the rig what is plugged in —
+a buffered signal, a single coil, a humbucker — and the first pedal's input
+impedance then decides how much of that pickup's resonance survives. Put the
+fuzz first with a single coil selected and several decibels come off the top,
+because a bare transistor input loads a pickup and a buffered one does not.
+Order changes the sound before the first diode conducts.
 
 Order is part of the parameter space. Each pedal owns a `position` parameter, so
 moving the delay in front of the fuzz survives in the preset, can be automated,

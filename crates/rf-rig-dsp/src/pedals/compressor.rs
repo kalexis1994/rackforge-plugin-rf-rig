@@ -22,6 +22,11 @@ use crate::circuit::filters::{CouplingCap, OnePole};
 use crate::circuit::ota::TransconductanceCell;
 use crate::math::{clamp, exponential, lerp};
 
+/// A buffered input, as this family has: what drives it barely matters.
+pub const INPUT_IMPEDANCE: f32 = 470_000.0;
+/// The level control at the output.
+pub const OUTPUT_IMPEDANCE: f32 = 10_000.0;
+
 /// What the cell's output current is developed across.
 const LOAD_RESISTANCE: f32 = 10_000.0;
 /// The divider ahead of the cell. Without it an ordinary guitar level would sit

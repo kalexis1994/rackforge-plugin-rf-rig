@@ -7,6 +7,8 @@
 pub const RIG_INPUT: u32 = 0;
 pub const RIG_OUTPUT: u32 = 1;
 pub const RIG_GATE: u32 = 2;
+/// Appended after the pedals; see the note in `lib.rs`.
+pub const RIG_SOURCE: u32 = 41;
 
 pub const COMP_ENGAGED: u32 = 3;
 pub const COMP_POSITION: u32 = 4;
@@ -67,6 +69,7 @@ mod tests {
         assert_eq!(identifier(RIG_INPUT), "rig.input");
         assert_eq!(identifier(RIG_OUTPUT), "rig.output");
         assert_eq!(identifier(RIG_GATE), "rig.gate");
+        assert_eq!(identifier(RIG_SOURCE), "rig.source");
         assert_eq!(identifier(COMP_ENGAGED), "comp.engaged");
         assert_eq!(identifier(COMP_POSITION), "comp.position");
         assert_eq!(identifier(COMP_SUSTAIN), "comp.sustain");

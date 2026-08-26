@@ -92,6 +92,52 @@ with the control at 0.3, 680 Hz at 0.7 — which no fixed peaking filter
 reproduces. A test checks the running filter against a direct complex solve of
 the same three node equations at every position; it agrees within 0.15 dB.
 
+### What one pedal does to the next
+
+A pedal is not an isolated box: it presents an input impedance and drives from
+an output impedance, and those two argue with each other.
+
+Inside the board, a pedal whose input is a bare transistor stage takes the
+previous pedal's output impedance into its own input resistor — the physical
+truth, and it moves two things at once. Less signal reaches the base, so the
+pedal saturates less; and the coupling capacitor now works against a larger
+resistance, so its corner moves *down* and there is relatively more bass. That
+second one is worth stating because it is the opposite of the usual intuition
+about lossy cables, which is a story about capacitance to ground.
+
+Pedals with buffered inputs see a ten-kilohm source against a half-megohm
+input: under a fifth of a decibel. That is left out rather than modelled as a
+multiply with no consequence — and the reason buffers exist is precisely that
+the answer is allowed to be "almost nothing".
+
+The declared impedances are checked, not asserted. The fuzz's is measured from
+the model itself: drive the stage with a tone, divide by the current its input
+branch draws, and require the published constant to agree.
+
+### What the guitar does before any of it
+
+The most audible loading of all happens before the first pedal. A pickup is a
+coil — henries of inductance, kilohms of wire — feeding its own capacitance and
+the cable, and that network resonates somewhere between two and five kilohertz.
+How tall that resonance stands depends on what is plugged into it.
+
+RF-Rig never sees a pickup: it receives a signal that already went through one,
+loaded by whatever interface captured it. So what `circuit/source.rs` models is
+not the pickup but the *difference* between two loading conditions,
+
+```text
+correction(s) = H(s, R_pedal) / H(s, R_captured)
+```
+
+which is exactly the part that is missing, and which collapses to a wire when
+the two match — an identity the tests check. The `Source` control says which
+guitar is plugged in, or `Buffered` for a signal that arrived through something
+with a stiff output, where the honest correction is none at all.
+
+With a single coil in front of a fuzz, the resonance is damped by several
+decibels and the top goes with it. In front of a buffered pedal, nothing
+measurable happens. Both of those are the same equation.
+
 ## Where the frequency response comes from
 
 A guitar pedal is mostly RC pairs, and the interesting ones are *inside* the
@@ -137,6 +183,8 @@ was, a compressor fed a two-millivolt sine put out more noise than signal.
 * All three tone networks, checked against a direct solve of their netlists.
 * The compressor's gain cell and the feedback loop around it.
 * The overdrive's and distortion's frequency-dependent gain networks.
+* Loading: pedal to pedal inside the board, and the pickup's resonance against
+  whatever the first pedal presents.
 * The BBD sweep, band-limiting and companding structure.
 * The echo's in-loop filtering and its two modes.
 
@@ -147,11 +195,11 @@ was, a compressor fed a two-millivolt sine put out more noise than signal.
   modelled transistor current source.
 * The op-amp gain stages are ideal apart from an explicit supply limit.
 * The reverb is a plausible spring and plate, not a measured tank.
+* The buffered pedals' input impedances are the family's published figures
+  rather than solved from their buffer stages: an emitter follower's only
+  audible job is that number, so it is declared instead of computed.
 
 **Not attempted yet**
-* Loading between pedals: a real chain's input and output impedances interact,
-  which is why a fuzz behaves differently after a buffer. The transistor stage
-  already has a real input impedance, so this is now mostly plumbing.
 * Component tolerance and temperature drift.
 * Power supply sag.
 * A clock-accurate bucket-brigade line: the aliasing of a real BBD is part of

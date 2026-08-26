@@ -17,6 +17,12 @@ use crate::circuit::filters::OnePole;
 use crate::circuit::nonlinear::SoftLimiter;
 use crate::math::{clamp, lerp};
 
+/// A buffered input: high enough that what drives it barely matters, which is
+/// the reason the buffer is there.
+pub const INPUT_IMPEDANCE: f32 = 500_000.0;
+/// An op-amp output driving the next pedal.
+pub const OUTPUT_IMPEDANCE: f32 = 1_000.0;
+
 /// The longest delay the contract offers, plus room for the wow modulation.
 pub const MAXIMUM_DELAY_SECONDS: f32 = 1.25;
 /// How far the clock drifts in an analog echo, in seconds.

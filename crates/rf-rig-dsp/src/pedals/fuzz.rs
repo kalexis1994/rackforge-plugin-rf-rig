@@ -46,6 +46,17 @@ const STAGE_COUPLING_FARADS: f32 = 100.0e-9;
 /// 470 pF across the 100 kΩ feedback resistor, which is what stops each stage
 /// from amplifying the fizz the one before it made.
 const STAGE_ROLLOFF_HZ: f32 = 3_400.0;
+/// What this pedal presents to whatever is in front of it.
+///
+/// Measured from the model rather than declared — see the test at the bottom of
+/// this file — because the number is a consequence of the booster's bias
+/// network, and because it is the whole reason this family is famous for
+/// caring what comes before it. There is no input buffer here: that is the
+/// point of the circuit, not an omission from the model.
+pub const INPUT_IMPEDANCE: f32 = 62_000.0;
+/// The volume control at the output, seen from the next pedal.
+pub const OUTPUT_IMPEDANCE: f32 = 25_000.0;
+
 /// The output buffer after the tone stack. The clipping stages hand over about
 /// six tenths of a volt and the tone network throws ten to sixteen decibels of
 /// that away; this is the recovery that makes the pedal louder than the guitar,
@@ -154,6 +165,11 @@ impl Fuzz {
         self.volume = exponential(clamp(volume, 0.0, 1.0), 0.02, 2.5);
     }
 
+    /// The impedance the pedal in front of this one drives it through.
+    pub fn set_source_impedance(&mut self, ohms: f32) {
+        self.booster.set_source_impedance(ohms);
+    }
+
     /// Where the bias network parked each stage, in volts: the booster first,
     /// then the two clipping stages. Published service voltages for this family
     /// put the clipping stages near a volt, so this is a number anyone can
@@ -220,6 +236,53 @@ mod tests {
         assert!(
             (2.0..8.0).contains(&booster),
             "the booster biased to {booster} V"
+        );
+    }
+
+    #[test]
+    fn the_declared_input_impedance_is_the_one_the_circuit_has() {
+        // Drive the booster with a tone and divide by the current its input
+        // branch draws. The constant this file publishes has to match what the
+        // circuit actually presents, or the loading model upstream is a
+        // fiction.
+        let sample_rate = 48_000.0 * 4.0;
+        let mut pedal = Fuzz::default();
+        pedal.prepare(48_000.0);
+        let mut current = std::vec::Vec::new();
+        for index in 0..8_192 {
+            let drive =
+                0.01 * crate::math::sin(crate::math::TAU * 1_000.0 * index as f32 / sample_rate);
+            pedal.booster.process(drive);
+            current.push(pedal.booster.last_input_current());
+        }
+        let measured = 0.01 / magnitude_at(&current, 1_000.0, sample_rate);
+        let ratio = measured / INPUT_IMPEDANCE;
+        assert!(
+            (0.75..1.35).contains(&ratio),
+            "declared {INPUT_IMPEDANCE} ohms, measured {measured}"
+        );
+    }
+
+    #[test]
+    fn a_lossy_source_takes_the_edge_off_it() {
+        // The audible half of the loading model: less signal reaches the
+        // clipping stages, so the pedal saturates less.
+        let sample_rate = 48_000.0;
+        let distortion_with = |source: f32| {
+            let mut pedal = Fuzz::default();
+            pedal.prepare(sample_rate);
+            pedal.set_controls(0.7, 0.5, 0.5);
+            pedal.set_source_impedance(source);
+            let rendered = render_sine(220.0, 0.1, sample_rate, 8_192, |sample| {
+                pedal.process(sample)
+            });
+            total_harmonic_distortion(&rendered, 220.0, sample_rate)
+        };
+        let direct = distortion_with(100.0);
+        let lossy = distortion_with(150_000.0);
+        assert!(
+            lossy < direct * 0.9,
+            "a lossy source changed nothing: {lossy} against {direct}"
         );
     }
 

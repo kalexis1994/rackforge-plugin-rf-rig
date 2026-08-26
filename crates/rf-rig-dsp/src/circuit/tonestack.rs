@@ -43,6 +43,7 @@
 //! against a direct complex solve of the same three equations, so the algebra
 //! cannot rot.
 
+use crate::circuit::analog::bilinear;
 use crate::circuit::filters::Biquad;
 
 /// One tone network, in component values.
@@ -199,26 +200,11 @@ impl ToneStack {
         if self.sample_rate <= 0.0 {
             return;
         }
-        let (numerator, denominator) = self.network.analog(position as f64);
-        // Bilinear transform, s = c(1 − z⁻¹)/(1 + z⁻¹).
-        let c = 2.0 * self.sample_rate;
-        let square = c * c;
-        let b0 = numerator[2] * square + numerator[1] * c + numerator[0];
-        let b1 = 2.0 * (numerator[0] - numerator[2] * square);
-        let b2 = numerator[2] * square - numerator[1] * c + numerator[0];
-        let a0 = denominator[2] * square + denominator[1] * c + denominator[0];
-        let a1 = 2.0 * (denominator[0] - denominator[2] * square);
-        let a2 = denominator[2] * square - denominator[1] * c + denominator[0];
-        if a0 == 0.0 || !a0.is_finite() {
+        let rational = self.network.analog(position as f64);
+        let Some([b0, b1, b2, a1, a2]) = bilinear(rational, self.sample_rate) else {
             return;
-        }
-        self.biquad.set_coefficients(
-            (b0 / a0) as f32,
-            (b1 / a0) as f32,
-            (b2 / a0) as f32,
-            (a1 / a0) as f32,
-            (a2 / a0) as f32,
-        );
+        };
+        self.biquad.set_coefficients(b0, b1, b2, a1, a2);
     }
 
     #[inline]

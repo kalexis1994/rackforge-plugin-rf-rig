@@ -5,7 +5,7 @@ vendor = "RackForge Community"
 version = "0.1.0"
 description = "A guitar pedalboard modelled at circuit level: compressor, overdrive, distortion, fuzz, chorus, delay and reverb in any order."
 kind = "effect"
-state_version = 1
+state_version = 2
 capabilities = [
     "audio_input",
     "audio_output",

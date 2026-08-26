@@ -733,7 +733,7 @@
       "flags": {
         "advanced": false,
         "automatable": true,
-        "modulatable": true,
+        "modulatable": false,
         "read_only": false
       },
       "id": "delay.mode",
@@ -884,7 +884,7 @@
       "flags": {
         "advanced": false,
         "automatable": true,
-        "modulatable": true,
+        "modulatable": false,
         "read_only": false
       },
       "id": "reverb.mode",
@@ -906,6 +906,38 @@
       "name": "Mode",
       "order": 5,
       "page": "reverb",
+      "suggested_control": "list"
+    },
+    {
+      "flags": {
+        "advanced": false,
+        "automatable": true,
+        "modulatable": false,
+        "read_only": false
+      },
+      "id": "rig.source",
+      "index": 41,
+      "kind": {
+        "choices": [
+          {
+            "name": "Buffered",
+            "value": 0
+          },
+          {
+            "name": "Single Coil",
+            "value": 1
+          },
+          {
+            "name": "Humbucker",
+            "value": 2
+          }
+        ],
+        "default": 0,
+        "type": "enum"
+      },
+      "name": "Source",
+      "order": -1,
+      "page": "rig",
       "suggested_control": "list"
     }
   ],

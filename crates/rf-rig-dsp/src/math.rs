@@ -53,6 +53,13 @@ pub fn sqrt(value: f32) -> f32 {
     libm::sqrtf(value)
 }
 
+/// Double-precision square root, for the places that solve a network before
+/// the coefficients are normalised.
+#[inline]
+pub fn sqrt64(value: f64) -> f64 {
+    libm::sqrt(value)
+}
+
 #[inline]
 pub fn abs(value: f32) -> f32 {
     libm::fabsf(value)

@@ -10,7 +10,7 @@
 * Adapter: `wasm-v1` component, sample-accurate automation, state save/load.
 * Package: schema-2 manifest declaring a mono input and stereo output bus,
   generated metadata, generated branding, static PLAY surface.
-* Tests: 103 covering the contract, each circuit block, each pedal's behaviour,
+* Tests: 123 covering the contract, each circuit block, each pedal's behaviour,
   the chain and the adapter — plus a guard that loads the built component in the
   host's own runtime, and a bench that reports what the board costs.
 
@@ -67,24 +67,26 @@ that.
    produced noise. A two-millivolt sine through the compressor was more noise
    than signal.
 
+6. **Loading, both kinds** (`circuit/source.rs`, and impedance carried along
+   the chain). Inside the board, a transistor input absorbs the previous
+   pedal's output impedance, so a lossy source costs the fuzz gain and moves
+   its bass corner down. Ahead of the board, a `Source` control says what is
+   plugged in, and the pickup's resonance is damped by whatever the first
+   pedal presents — modelled as the *difference* between that load and the one
+   the signal was captured through, so it collapses to a wire when they match.
+
 ### Next, in order of expected audible return
 
-1. **Loading between pedals.** A real chain interacts through input and output
-   impedances, which is why a fuzz behaves differently after a buffered pedal
-   than straight from the guitar. The transistor stage already has a genuine
-   input impedance and a coupling capacitor, so the remaining work is to carry a
-   source impedance along the chain and let each input stage see it — the corner
-   frequency moves, not just the level.
-2. **The rectifier that drives the compressor's bias.** A modelled current
+1. **The rectifier that drives the compressor's bias.** A modelled current
    source instead of a linear law, which is what decides how the pedal recovers
    after a chord.
-3. **Component tolerance.** A seed per instance, values drifting inside their
+2. **Component tolerance.** A seed per instance, values drifting inside their
    stated tolerance, so two instances are not identical — the reason two units
    of the same pedal never quite match.
-4. **A clock-accurate bucket-brigade line.** Resampling at the clock rate rather
+3. **A clock-accurate bucket-brigade line.** Resampling at the clock rate rather
    than reading a fractional delay: the aliasing of a real BBD is part of its
    sound, and the current model band-limits it away.
-5. **Canonical values for the remaining two tone networks**, from a trace or a
+4. **Canonical values for the remaining two tone networks**, from a trace or a
    published analysis.
 
 ## Pedals not yet on the board

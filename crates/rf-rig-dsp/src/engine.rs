@@ -1,10 +1,13 @@
 //! The board: seven pedals, cabled in the order the parameters describe.
 
 use rf_rig_contract::index::*;
-use rf_rig_contract::{PARAMETER_COUNT, PEDAL_COUNT, PEDALS, Settings, chain_order, preset};
+use rf_rig_contract::{
+    PARAMETER_COUNT, PEDAL_COUNT, PEDALS, PREVIOUS_PARAMETER_COUNTS, Settings, chain_order, preset,
+};
 
 use crate::Frame;
 use crate::circuit::dynamics::NoiseGate;
+use crate::circuit::source::{PickupSource, SourceLoading};
 use crate::math::db_to_gain;
 use crate::pedals::chorus::Chorus;
 use crate::pedals::compressor::Compressor;
@@ -17,6 +20,15 @@ use crate::workspace::{MAXIMUM_SAMPLE_RATE, Workspace};
 
 /// Length of the serialised state, in bytes.
 pub const STATE_BYTES: usize = PARAMETER_COUNT * 4;
+
+/// What drives the board: an interface output, or the buffered output of
+/// whatever came before RackForge. Stiff enough to be a rounding error against
+/// any pedal's input impedance — and when the player tells the rig they are
+/// plugging a guitar in instead, that interaction is modelled properly by the
+/// source correction rather than by this number.
+const BOARD_SOURCE_IMPEDANCE: f32 = 100.0;
+/// The load an empty board presents: RackForge's own input, effectively.
+const HOST_INPUT_IMPEDANCE: f32 = 1_000_000.0;
 
 /// Slot numbers, matching the order pedals are declared in the contract.
 const SLOT_COMPRESSOR: usize = 0;
@@ -40,6 +52,7 @@ pub struct Engine<'a> {
     output_gain: f32,
 
     gate: NoiseGate,
+    source_loading: SourceLoading,
     compressor: Compressor,
     overdrive: Overdrive,
     distortion: Distortion,
@@ -112,9 +125,49 @@ impl<'a> Engine<'a> {
         self.attach(buffer) && self.prepare(sample_rate)
     }
 
+    /// What each pedal presents to the one in front of it, in ohms.
+    fn input_impedance(slot: usize) -> f32 {
+        match slot {
+            SLOT_COMPRESSOR => crate::pedals::compressor::INPUT_IMPEDANCE,
+            SLOT_OVERDRIVE => crate::pedals::overdrive::INPUT_IMPEDANCE,
+            SLOT_DISTORTION => crate::pedals::distortion::INPUT_IMPEDANCE,
+            SLOT_FUZZ => crate::pedals::fuzz::INPUT_IMPEDANCE,
+            SLOT_CHORUS => crate::pedals::chorus::INPUT_IMPEDANCE,
+            SLOT_ECHO => crate::pedals::echo::INPUT_IMPEDANCE,
+            SLOT_REVERB => crate::pedals::reverb::INPUT_IMPEDANCE,
+            _ => HOST_INPUT_IMPEDANCE,
+        }
+    }
+
+    /// What each pedal looks like from the one behind it, in ohms.
+    fn output_impedance(slot: usize) -> f32 {
+        match slot {
+            SLOT_COMPRESSOR => crate::pedals::compressor::OUTPUT_IMPEDANCE,
+            SLOT_OVERDRIVE => crate::pedals::overdrive::OUTPUT_IMPEDANCE,
+            SLOT_DISTORTION => crate::pedals::distortion::OUTPUT_IMPEDANCE,
+            SLOT_FUZZ => crate::pedals::fuzz::OUTPUT_IMPEDANCE,
+            SLOT_CHORUS => crate::pedals::chorus::OUTPUT_IMPEDANCE,
+            SLOT_ECHO => crate::pedals::echo::OUTPUT_IMPEDANCE,
+            SLOT_REVERB => crate::pedals::reverb::OUTPUT_IMPEDANCE,
+            _ => BOARD_SOURCE_IMPEDANCE,
+        }
+    }
+
+    /// The impedance the first engaged pedal presents to whatever is plugged
+    /// into the board — which is what decides how much a guitar's resonance is
+    /// damped.
+    pub fn board_input_impedance(&self) -> f32 {
+        self.order
+            .iter()
+            .find(|slot| self.engaged[**slot])
+            .map(|slot| Self::input_impedance(*slot))
+            .unwrap_or(HOST_INPUT_IMPEDANCE)
+    }
+
     /// Clears every delay line and detector without touching the settings.
     pub fn reset(&mut self) {
         self.gate.reset();
+        self.source_loading.reset();
         self.compressor.reset();
         self.overdrive.reset();
         self.distortion.reset();
@@ -163,8 +216,18 @@ impl<'a> Engine<'a> {
         Some(STATE_BYTES)
     }
 
+    /// Restores a saved block, including one written by an earlier build.
+    ///
+    /// State here is the parameter block, so its length identifies its layout;
+    /// parameters are only ever appended, and anything a shorter block predates
+    /// keeps its default. Anything else is refused outright rather than
+    /// half-applied.
     pub fn load_state(&mut self, state: &[u8]) -> bool {
-        if state.len() != STATE_BYTES {
+        if !state.len().is_multiple_of(4) {
+            return false;
+        }
+        let count = state.len() / 4;
+        if count != PARAMETER_COUNT && !PREVIOUS_PARAMETER_COUNTS.contains(&count) {
             return false;
         }
         let mut values = [0.0_f32; PARAMETER_COUNT];
@@ -174,7 +237,7 @@ impl<'a> Engine<'a> {
             };
             *value = f32::from_le_bytes(word);
         }
-        let Some(settings) = Settings::from_array(values) else {
+        let Some(settings) = Settings::from_slice(&values[..count]) else {
             return false;
         };
         self.settings = settings;
@@ -196,6 +259,36 @@ impl<'a> Engine<'a> {
         self.input_gain = db_to_gain(value(RIG_INPUT));
         self.output_gain = db_to_gain(value(RIG_OUTPUT));
         self.gate.set_threshold_db(value(RIG_GATE));
+
+        // What the board is being fed. "Buffered" means the signal arrived
+        // through something with a stiff output — an interface, a DI, another
+        // plugin — and nothing needs correcting. The other two say a guitar is
+        // plugged straight in, and then the first pedal's input impedance
+        // decides how much of the pickup's resonance survives.
+        let pickup = match settings.selection(RIG_SOURCE) {
+            1 => Some(PickupSource::SINGLE_COIL),
+            2 => Some(PickupSource::HUMBUCKER),
+            _ => None,
+        };
+        let load = self.board_input_impedance();
+        self.source_loading.prepare(pickup, load, self.sample_rate);
+
+        // Impedance walks the board with the signal. Only the pedals whose
+        // input is a bare transistor stage take it: a buffered input against a
+        // ten-kilohm source is under a fifth of a decibel, and pretending
+        // otherwise would be arithmetic without a consequence.
+        let mut source = BOARD_SOURCE_IMPEDANCE;
+        for slot in self.order {
+            if !self.engaged[slot] {
+                continue;
+            }
+            match slot {
+                SLOT_DISTORTION => self.distortion.set_source_impedance(source),
+                SLOT_FUZZ => self.fuzz.set_source_impedance(source),
+                _ => {}
+            }
+            source = Self::output_impedance(slot);
+        }
 
         self.compressor
             .set_controls(value(COMP_SUSTAIN), value(COMP_ATTACK), value(COMP_LEVEL));
@@ -250,6 +343,7 @@ impl<'a> Engine<'a> {
             input_gain,
             output_gain,
             gate,
+            source_loading,
             compressor,
             overdrive,
             distortion,
@@ -263,7 +357,10 @@ impl<'a> Engine<'a> {
             return (0.0, 0.0);
         };
 
-        let mut frame = Frame::mono(gate.process(input * *input_gain));
+        // The source correction sits ahead of everything, because it models
+        // what happened at the guitar's jack rather than anything on the board.
+        let trimmed = source_loading.process(input * *input_gain);
+        let mut frame = Frame::mono(gate.process(trimmed));
 
         for slot in order.iter() {
             if !engaged[*slot] {
@@ -458,6 +555,82 @@ mod tests {
         assert!(restored.load_state(&bytes));
         assert_eq!(restored.parameter(DRIVE_DRIVE), Some(0.77_f32 as f64));
         assert_eq!(restored.parameter(DELAY_TIME), Some(512.0));
+    }
+
+    #[test]
+    fn a_state_block_from_an_earlier_build_still_loads() {
+        let mut memory = buffer();
+        let mut engine = Engine::default();
+        assert!(engine.prepare_with(48_000.0, &mut memory));
+        assert!(engine.set_parameter(FUZZ_ENGAGED, 1.0));
+        assert!(engine.set_parameter(FUZZ_SUSTAIN, 0.9));
+
+        let mut bytes = [0_u8; STATE_BYTES];
+        assert_eq!(engine.save_state(&mut bytes), Some(STATE_BYTES));
+        // The layout before the source selector was appended.
+        let older = &bytes[..PREVIOUS_PARAMETER_COUNTS[0] * 4];
+
+        let mut other = buffer();
+        let mut restored = Engine::default();
+        assert!(restored.prepare_with(48_000.0, &mut other));
+        assert!(restored.load_state(older));
+        assert_eq!(restored.parameter(FUZZ_SUSTAIN), Some(0.9_f32 as f64));
+        assert_eq!(restored.parameter(RIG_SOURCE), Some(0.0));
+    }
+
+    #[test]
+    fn what_the_board_presents_depends_on_what_is_first() {
+        let mut memory = buffer();
+        let mut engine = Engine::default();
+        assert!(engine.prepare_with(48_000.0, &mut memory));
+        // Nothing engaged: the host's own input.
+        assert!(engine.board_input_impedance() > 900_000.0);
+
+        assert!(engine.set_parameter(FUZZ_ENGAGED, 1.0));
+        assert!(engine.set_parameter(FUZZ_POSITION, 1.0));
+        assert!(engine.set_parameter(COMP_POSITION, 2.0));
+        let with_fuzz = engine.board_input_impedance();
+
+        assert!(engine.set_parameter(DRIVE_ENGAGED, 1.0));
+        assert!(engine.set_parameter(DRIVE_POSITION, 1.0));
+        assert!(engine.set_parameter(FUZZ_POSITION, 3.0));
+        let with_drive = engine.board_input_impedance();
+
+        assert!(
+            with_fuzz < with_drive * 0.5,
+            "a bare transistor input should load far harder than a buffered one: \
+             {with_fuzz} against {with_drive}"
+        );
+    }
+
+    #[test]
+    fn telling_the_rig_a_guitar_is_plugged_in_changes_what_it_hears() {
+        // Only when something is actually loading the pickup: the correction is
+        // the difference between two loads, so a buffered source is a wire.
+        let sample_rate = 48_000.0;
+        let render_with = |source: f64| {
+            let mut memory = buffer();
+            let mut engine = Engine::default();
+            assert!(engine.prepare_with(sample_rate as f64, &mut memory));
+            assert!(engine.set_parameter(FUZZ_ENGAGED, 1.0));
+            assert!(engine.set_parameter(FUZZ_POSITION, 1.0));
+            assert!(engine.set_parameter(COMP_POSITION, 2.0));
+            assert!(engine.set_parameter(RIG_SOURCE, source));
+            let mut output = Vec::new();
+            for index in 0..16_384 {
+                let phase = crate::math::TAU * 3_500.0 * index as f32 / sample_rate;
+                let (left, _) = engine.process(0.02 * crate::math::sin(phase));
+                output.push(left);
+            }
+            crate::testing::magnitude_at(&output, 3_500.0, sample_rate)
+        };
+
+        let buffered = render_with(0.0);
+        let single_coil = render_with(1.0);
+        assert!(
+            single_coil < buffered * 0.85,
+            "a fuzz should damp a pickup's resonance: {single_coil} against {buffered}"
+        );
     }
 
     #[test]

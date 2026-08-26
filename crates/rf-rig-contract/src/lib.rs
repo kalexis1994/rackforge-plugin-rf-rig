@@ -16,7 +16,12 @@ pub use pedal::{PEDAL_COUNT, PEDALS, PedalSpec, chain_order};
 pub use preset::{PRESET_COUNT, PRESETS, Preset, settings_for};
 
 /// Number of public parameters. Also the length of the state block in `f32`s.
-pub const PARAMETER_COUNT: usize = 41;
+pub const PARAMETER_COUNT: usize = 42;
+
+/// The parameter count of each earlier state layout, so a block saved by an
+/// older build can still be read. Length is the only thing that identifies a
+/// layout here, which is why parameters are only ever appended.
+pub const PREVIOUS_PARAMETER_COUNTS: [usize; 1] = [41];
 
 /// Editor pages. RackForge renders them in `order`; the web surface uses the
 /// same identifiers to group its pedal panels.
@@ -378,6 +383,20 @@ pub const PARAMETERS: [ParameterSpec; PARAMETER_COUNT] = [
         },
         control: Control::List,
     },
+    // Appended, not inserted: every index above is load-bearing for saved
+    // state. Its place in the interface comes from the page order below.
+    ParameterSpec {
+        index: 41,
+        id: "rig.source",
+        name: "Source",
+        page: "rig",
+        order: -1,
+        kind: Kind::Enum {
+            default: 0,
+            choices: &["Buffered", "Single Coil", "Humbucker"],
+        },
+        control: Control::List,
+    },
 ];
 
 /// The flat parameter block. This *is* the plugin state: RF-Rig serialises it
@@ -434,9 +453,23 @@ impl Settings {
     }
 
     pub fn from_array(values: [f32; PARAMETER_COUNT]) -> Option<Self> {
+        Self::from_slice(&values)
+    }
+
+    /// Reads a state block that may have been written by an earlier build.
+    ///
+    /// Layouts are identified by length, and parameters are only ever appended,
+    /// so a shorter block is an older one: its values are applied and anything
+    /// added since keeps its default. A length that belongs to no layout, or a
+    /// value outside the contract, is refused outright rather than partially
+    /// applied.
+    pub fn from_slice(values: &[f32]) -> Option<Self> {
+        if values.len() != PARAMETER_COUNT && !PREVIOUS_PARAMETER_COUNTS.contains(&values.len()) {
+            return None;
+        }
         let mut settings = Self::default();
-        for (index, value) in values.into_iter().enumerate() {
-            if !settings.set(index as u32, value as f64) {
+        for (index, value) in values.iter().enumerate() {
+            if !settings.set(index as u32, *value as f64) {
                 return None;
             }
         }
@@ -481,6 +514,25 @@ mod tests {
         let settings = Settings::default();
         let restored = Settings::from_array(settings.as_array()).expect("defaults are valid");
         assert_eq!(settings.as_array(), restored.as_array());
+    }
+
+    #[test]
+    fn a_state_block_from_an_older_layout_still_loads() {
+        let mut settings = Settings::default();
+        assert!(settings.set(index::DRIVE_DRIVE, 0.8));
+        let full = settings.as_array();
+        let older = &full[..PREVIOUS_PARAMETER_COUNTS[0]];
+
+        let restored = Settings::from_slice(older).expect("an older block is readable");
+        assert_eq!(restored.get(index::DRIVE_DRIVE), Some(0.8_f32 as f64));
+        // Anything added since keeps its default.
+        assert_eq!(restored.selection(index::RIG_SOURCE), 0);
+    }
+
+    #[test]
+    fn a_block_of_an_unknown_length_is_refused() {
+        assert!(Settings::from_slice(&[0.0; 7]).is_none());
+        assert!(Settings::from_slice(&[]).is_none());
     }
 
     #[test]

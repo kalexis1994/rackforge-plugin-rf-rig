@@ -21,6 +21,11 @@ use crate::circuit::oversample::Oversampler4;
 use crate::circuit::tonestack::{ToneNetwork, ToneStack};
 use crate::math::{clamp, exponential};
 
+/// A buffered input, as this family has: an op-amp behind a pulldown.
+pub const INPUT_IMPEDANCE: f32 = 500_000.0;
+/// The level control at the output.
+pub const OUTPUT_IMPEDANCE: f32 = 10_000.0;
+
 /// Series resistance from the inverting node to the clipping network.
 const INPUT_RESISTANCE: f32 = 4_700.0;
 /// 4.7 kΩ with 47 nF. Below this corner the stage barely amplifies at all.

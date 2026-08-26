@@ -160,7 +160,7 @@ fn panic(_info: &core::panic::PanicInfo<'_>) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rf_rig_contract::index::{DRIVE_DRIVE, DRIVE_ENGAGED, RIG_OUTPUT};
+    use rf_rig_contract::index::{DRIVE_DRIVE, DRIVE_ENGAGED, RIG_OUTPUT, RIG_SOURCE};
     use rf_rig_dsp::STATE_BYTES;
 
     fn prepared() -> RfRigProcessor {
@@ -241,8 +241,14 @@ mod tests {
         assert!(restored.load_state(&bytes));
         assert_eq!(restored.get_parameter(DRIVE_ENGAGED), Some(1.0));
         assert_eq!(restored.get_parameter(DRIVE_DRIVE), Some(0.8_f32 as f64));
-        // A truncated block is refused rather than half-applied.
-        assert!(!restored.load_state(&bytes[..STATE_BYTES - 4]));
+        // A block from the layout before the source selector was appended is a
+        // migration, not a corruption: it loads, and the parameter it predates
+        // keeps its default.
+        assert!(restored.load_state(&bytes[..STATE_BYTES - 4]));
+        assert_eq!(restored.get_parameter(RIG_SOURCE), Some(0.0));
+        // A length belonging to no layout is refused rather than half-applied.
+        assert!(!restored.load_state(&bytes[..STATE_BYTES - 8]));
+        assert!(!restored.load_state(&bytes[..STATE_BYTES - 1]));
     }
 
     #[test]

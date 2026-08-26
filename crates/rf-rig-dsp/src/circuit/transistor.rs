@@ -184,9 +184,9 @@ struct Conductances {
 }
 
 impl Conductances {
-    fn of(design: &StageDesign) -> Self {
+    fn of(design: &StageDesign, source_impedance: f32) -> Self {
         Self {
-            input: 1.0 / design.input_resistance,
+            input: 1.0 / (design.input_resistance + source_impedance),
             collector: 1.0 / design.collector_resistance,
             feedback: 1.0 / design.feedback_resistance,
             emitter: 1.0 / design.emitter_resistance,
@@ -201,11 +201,13 @@ impl Conductances {
 pub struct CommonEmitterStage {
     design: StageDesign,
     conductance: Conductances,
+    source_impedance: f32,
     base: f32,
     collector: f32,
     emitter: f32,
     coupling_voltage: f32,
     time_step: f32,
+    input_current: f32,
 }
 
 impl Default for CommonEmitterStage {
@@ -218,13 +220,38 @@ impl CommonEmitterStage {
     pub fn new(design: StageDesign) -> Self {
         Self {
             design,
-            conductance: Conductances::of(&design),
+            conductance: Conductances::of(&design, 0.0),
+            source_impedance: 0.0,
             base: 0.6,
             collector: design.supply * 0.5,
             emitter: 0.02,
             coupling_voltage: -0.6,
             time_step: 1.0 / 192_000.0,
+            input_current: 0.0,
         }
+    }
+
+    /// The impedance whatever drives this stage looks back into, in ohms.
+    ///
+    /// It goes in series with the stage's own input resistor, which is the
+    /// physical truth and has two consequences at once: less signal reaches the
+    /// base, and the coupling capacitor turns over at a lower frequency. That
+    /// pair is why a fuzz sounds different after a pedal with a lossy output
+    /// than it does first in the chain.
+    pub fn set_source_impedance(&mut self, ohms: f32) {
+        let clamped = clamp(ohms, 0.0, 2.0e6);
+        if abs(clamped - self.source_impedance) < 1.0 {
+            return;
+        }
+        self.source_impedance = clamped;
+        self.conductance = Conductances::of(&self.design, clamped);
+    }
+
+    /// Current the input branch drew on the last sample. Dividing the driving
+    /// voltage by this is how the stage's input impedance is measured rather
+    /// than declared.
+    pub fn last_input_current(&self) -> f32 {
+        self.input_current
     }
 
     /// The component values this stage was built from.
@@ -299,6 +326,7 @@ impl CommonEmitterStage {
         // capacitor. Explicit integration is stable here by a wide margin: the
         // branch's time constant is thousands of samples long.
         let branch_current = (input - self.coupling_voltage - self.base) * self.conductance.input;
+        self.input_current = branch_current;
         self.coupling_voltage +=
             branch_current * self.time_step * self.conductance.inverse_coupling;
         if !self.coupling_voltage.is_finite() {
@@ -604,6 +632,73 @@ mod tests {
             }
         }
         assert!(worst_accepted < 0.01);
+    }
+
+    #[test]
+    fn the_stage_has_an_input_impedance_and_a_source_changes_what_arrives() {
+        // Measured, not declared: drive the stage with a tone and divide by the
+        // current the input branch draws.
+        let impedance_of = |stage: &mut CommonEmitterStage| {
+            let bias = stage.operating_point();
+            let mut current = std::vec::Vec::new();
+            let rendered = render_sine(1_000.0, 0.01, SAMPLE_RATE, 4_096, |sample| {
+                let output = stage.process(sample) - bias;
+                current.push(stage.last_input_current());
+                output
+            });
+            let _ = rendered;
+            0.01 / magnitude_at(&current, 1_000.0, SAMPLE_RATE)
+        };
+
+        let mut bare = booster();
+        let unloaded = impedance_of(&mut bare);
+        assert!(
+            (20_000.0..400_000.0).contains(&unloaded),
+            "a bare transistor input measured {unloaded} ohms"
+        );
+
+        // A lossy source in front of it raises the impedance seen from outside
+        // by exactly what was added, and lowers what reaches the base.
+        let mut loaded = booster();
+        loaded.set_source_impedance(100_000.0);
+        let with_source = impedance_of(&mut loaded);
+        assert!(
+            with_source > unloaded + 50_000.0,
+            "adding 100 k of source moved the input impedance from {unloaded} to {with_source}"
+        );
+    }
+
+    #[test]
+    fn a_lossy_source_costs_gain_and_lowers_the_bass_corner() {
+        let gain_at = |frequency: f32, source: f32| {
+            let mut stage = booster();
+            stage.set_source_impedance(source);
+            let bias = stage.operating_point();
+            let rendered = render_sine(frequency, 0.005, SAMPLE_RATE, 8_192, |sample| {
+                stage.process(sample) - bias
+            });
+            magnitude_at(&rendered, frequency, SAMPLE_RATE) / 0.005
+        };
+
+        let direct_mid = gain_at(1_000.0, 0.0);
+        let lossy_mid = gain_at(1_000.0, 100_000.0);
+        assert!(
+            lossy_mid < direct_mid * 0.8,
+            "the source cost no gain: {lossy_mid} against {direct_mid}"
+        );
+
+        // And the low end comes *up* relative to the midrange, which is the
+        // opposite of the intuition about lossy cables — that one is about
+        // capacitance to ground. Here the added resistance is in series with
+        // the coupling capacitor, so the high-pass corner moves down and less
+        // bass is lost. Measured: 0.75 of the midrange directly driven, 0.98
+        // through a hundred kilohms.
+        let direct_ratio = gain_at(60.0, 0.0) / direct_mid;
+        let lossy_ratio = gain_at(60.0, 100_000.0) / lossy_mid;
+        assert!(
+            lossy_ratio > direct_ratio,
+            "the bass corner did not move: {lossy_ratio} against {direct_ratio}"
+        );
     }
 
     #[test]

@@ -15,6 +15,12 @@ use crate::circuit::delay::DelayLine;
 use crate::circuit::filters::{Allpass1, OnePole};
 use crate::math::{clamp, exponential, lerp};
 
+/// A buffered input: high enough that what drives it barely matters, which is
+/// the reason the buffer is there.
+pub const INPUT_IMPEDANCE: f32 = 500_000.0;
+/// An op-amp output driving the next pedal.
+pub const OUTPUT_IMPEDANCE: f32 = 1_000.0;
+
 /// Lines the reverb claims from the workspace.
 pub const LINE_COUNT: usize = 8;
 /// The longest tank delay, which sets the per-line allocation.

@@ -15,6 +15,12 @@ use crate::circuit::delay::BucketBrigade;
 use crate::circuit::dynamics::{Lfo, LfoShape};
 use crate::math::clamp;
 
+/// A buffered input: high enough that what drives it barely matters, which is
+/// the reason the buffer is there.
+pub const INPUT_IMPEDANCE: f32 = 500_000.0;
+/// An op-amp output driving the next pedal.
+pub const OUTPUT_IMPEDANCE: f32 = 1_000.0;
+
 /// Delay at the centre of the sweep.
 const CENTRE_DELAY_SECONDS: f32 = 0.0045;
 /// Maximum excursion either side of it at full depth.

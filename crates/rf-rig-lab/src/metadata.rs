@@ -49,7 +49,9 @@ pub fn parameter_schema() -> Value {
                 "flags".into(),
                 json!({
                     "automatable": true,
-                    "modulatable": !matches!(parameter.kind, Kind::Boolean { .. } | Kind::Integer { .. }),
+                    // Only a continuous control is worth handing to a modulation
+                    // source; a switch or a selector is not.
+                    "modulatable": matches!(parameter.kind, Kind::Float { .. }),
                     "read_only": false,
                     "advanced": matches!(parameter.kind, Kind::Integer { .. }),
                 }),

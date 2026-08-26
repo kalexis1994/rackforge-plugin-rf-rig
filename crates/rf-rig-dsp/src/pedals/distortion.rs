@@ -25,6 +25,13 @@ const INPUT_RESISTANCE: f32 = 4_700.0;
 const INPUT_CORNER_HZ: f32 = 72.0;
 const FIXED_FEEDBACK: f32 = 22_000.0;
 const DISTORTION_POT: f32 = 100_000.0;
+/// This family buffers its input, so it presents a high impedance whatever the
+/// booster behind that buffer looks like. The buffer itself is not modelled:
+/// an emitter follower's only audible job is this number.
+pub const INPUT_IMPEDANCE: f32 = 470_000.0;
+/// The level control at the output.
+pub const OUTPUT_IMPEDANCE: f32 = 10_000.0;
+
 /// Recovery after the clipper and the tone network. Calibrated so the pedal
 /// reaches unity with its level control near a third of its travel, which is
 /// where this family sits.
@@ -98,6 +105,12 @@ impl Distortion {
         self.feedback_resistance = FIXED_FEEDBACK + clamp(distortion, 0.0, 1.0) * DISTORTION_POT;
         self.tone.set_position(clamp(tone, 0.0, 1.0));
         self.level = exponential(clamp(level, 0.0, 1.0), 0.02, 2.0);
+    }
+
+    /// The impedance the pedal in front of this one drives it through. It
+    /// reaches the booster, which is what the buffer feeds.
+    pub fn set_source_impedance(&mut self, ohms: f32) {
+        self.booster.set_source_impedance(ohms);
     }
 
     #[inline]
