@@ -21,6 +21,8 @@ pub const INPUT_IMPEDANCE: f32 = 500_000.0;
 /// An op-amp output driving the next pedal.
 pub const OUTPUT_IMPEDANCE: f32 = 1_000.0;
 
+/// Stages in the register this family uses.
+const STAGES: f32 = 1_024.0;
 /// Delay at the centre of the sweep.
 const CENTRE_DELAY_SECONDS: f32 = 0.0045;
 /// Maximum excursion either side of it at full depth.
@@ -40,8 +42,12 @@ pub struct Chorus {
 impl Chorus {
     pub fn prepare(&mut self, buffer: &mut [f32], sample_rate: f32) {
         self.sample_rate = sample_rate;
+        // An MN3007: 1024 stages. At the middle of the sweep that is a clock
+        // near 114 kHz, and the register keeps its whole band; at the slow end
+        // of a deep sweep it closes slightly, which is the breathing a real
+        // one has.
         self.line
-            .prepare(buffer, sample_rate, MAXIMUM_DELAY_SECONDS);
+            .prepare(buffer, sample_rate, MAXIMUM_DELAY_SECONDS, STAGES);
         self.lfo.set_shape(LfoShape::Triangle);
         self.lfo.set_rate(0.8, sample_rate);
         self.sweep = MAXIMUM_SWEEP_SECONDS * 0.5;

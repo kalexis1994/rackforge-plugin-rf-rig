@@ -9,6 +9,14 @@
 //!
 //! Both modes here share the same delay lines and differ only in what the
 //! feedback path does — which is exactly how the two circuits differ.
+//!
+//! In analog mode the band-limiting is not a fixed filter. A bucket-brigade
+//! register's clock *is* its delay control — `delay = stages / (2·f_clock)` —
+//! so a 4096-stage chip set to 400 ms is clocked at 5.1 kHz and simply cannot
+//! carry treble, while the same chip at 40 ms clocks ten times faster and
+//! sounds it. Long delays being darker than short ones is the single most
+//! recognisable thing about these pedals, and it is a consequence of that one
+//! relation rather than a taste decision.
 
 use crate::Frame;
 use crate::circuit::delay::DelayLine;
@@ -27,6 +35,15 @@ pub const OUTPUT_IMPEDANCE: f32 = 1_000.0;
 pub const MAXIMUM_DELAY_SECONDS: f32 = 1.25;
 /// How far the clock drifts in an analog echo, in seconds.
 const WOW_DEPTH_SECONDS: f32 = 0.00018;
+/// Stages in the register this family uses: an MN3005.
+const STAGES: f32 = 4_096.0;
+/// The fraction of the clock the register still carries, once charge-transfer
+/// loss has had its say.
+const BANDWIDTH_PER_CLOCK: f32 = 0.25;
+/// The fixed filters soldered around the chip. Whichever is lower — these or
+/// the clock — decides.
+const ANALOG_CEILING_HZ: f32 = 4_500.0;
+const DIGITAL_CEILING_HZ: f32 = 9_000.0;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum EchoMode {
@@ -38,41 +55,57 @@ pub enum EchoMode {
 #[derive(Clone, Copy, Default)]
 struct Channel {
     line: DelayLine,
+    /// Ahead of the register, where the real circuit puts it.
+    anti_alias: OnePole,
+    /// After it, smoothing the staircase the register hands back.
+    reconstruction: OnePole,
+    /// In the feedback path only: the coupling that stops the repeats from
+    /// piling up a rumble.
     highpass: OnePole,
-    lowpass: OnePole,
     limiter: SoftLimiter,
+    bandwidth_hz: f32,
 }
 
 impl Channel {
     fn prepare(&mut self, buffer: &mut [f32], sample_rate: f32) {
         let length = (sample_rate * MAXIMUM_DELAY_SECONDS) as usize + 16;
         self.line.prepare(buffer, length);
+        self.anti_alias = OnePole::new(ANALOG_CEILING_HZ, sample_rate);
+        self.reconstruction = OnePole::new(ANALOG_CEILING_HZ, sample_rate);
         self.highpass = OnePole::new(120.0, sample_rate);
-        self.lowpass = OnePole::new(2_800.0, sample_rate);
         self.limiter.reset();
+        self.bandwidth_hz = 0.0;
     }
 
     fn clear(&mut self, buffer: &mut [f32]) {
         self.line.clear(buffer);
+        self.anti_alias.reset();
+        self.reconstruction.reset();
         self.highpass.reset();
-        self.lowpass.reset();
         self.limiter.reset();
     }
 
     fn set_mode(&mut self, mode: EchoMode, sample_rate: f32) {
-        match mode {
-            EchoMode::Analog => {
-                // A bucket-brigade line has neither the bandwidth nor the
-                // headroom of a digital one, and both limits are inside the
-                // loop.
-                self.highpass.set_cutoff(120.0, sample_rate);
-                self.lowpass.set_cutoff(2_800.0, sample_rate);
-            }
-            EchoMode::Digital => {
-                self.highpass.set_cutoff(25.0, sample_rate);
-                self.lowpass.set_cutoff(9_000.0, sample_rate);
-            }
+        // A bucket-brigade line has neither the bandwidth nor the headroom of a
+        // digital one, and both limits are inside the loop.
+        let corner = match mode {
+            EchoMode::Analog => 120.0,
+            EchoMode::Digital => 25.0,
+        };
+        self.highpass.set_cutoff(corner, sample_rate);
+        self.bandwidth_hz = 0.0;
+    }
+
+    /// Points both of the register's filters at whatever it can still carry.
+    /// Skips the work when the clock has barely moved, which is most samples.
+    #[inline]
+    fn follow_clock(&mut self, bandwidth_hz: f32, sample_rate: f32) {
+        if crate::math::abs(bandwidth_hz - self.bandwidth_hz) < self.bandwidth_hz * 0.002 {
+            return;
         }
+        self.bandwidth_hz = bandwidth_hz;
+        self.anti_alias.set_cutoff(bandwidth_hz, sample_rate);
+        self.reconstruction.set_cutoff(bandwidth_hz, sample_rate);
     }
 }
 
@@ -167,11 +200,33 @@ impl Echo {
         } else {
             0.0
         };
+        // What the register can still carry at this clock. In digital mode
+        // there is no register, so only the fixed filter applies.
+        let bandwidth = match self.mode {
+            EchoMode::Analog => {
+                let clock = STAGES / (2.0 * time.max(1.0e-4));
+                (clock * BANDWIDTH_PER_CLOCK).min(ANALOG_CEILING_HZ)
+            }
+            EchoMode::Digital => DIGITAL_CEILING_HZ,
+        };
+        self.left.follow_clock(bandwidth, self.sample_rate);
+        self.right.follow_clock(bandwidth, self.sample_rate);
+
         let left_delay = (time + drift) * self.sample_rate;
         let right_delay = (time - drift) * self.sample_rate;
 
-        let left_read = self.left.line.read(left_buffer, left_delay);
-        let right_read = self.right.line.read(right_buffer, right_delay);
+        // Out of the register, through the filter that smooths its staircase.
+        // This is the band-limiting the *first* repeat already has: in the real
+        // pedal the signal is filtered on the way through, not only on the way
+        // round.
+        let left_read = self
+            .left
+            .reconstruction
+            .low(self.left.line.read(left_buffer, left_delay));
+        let right_read = self
+            .right
+            .reconstruction
+            .low(self.right.line.read(right_buffer, right_delay));
 
         // At full width the two lines feed each other, which is what makes the
         // repeats alternate across the image.
@@ -182,10 +237,14 @@ impl Echo {
         let left_feedback = Self::loop_path(&mut self.left, left_source) * self.feedback;
         let right_feedback = Self::loop_path(&mut self.right, right_source) * self.feedback;
 
-        self.left.line.write(left_buffer, dry + left_feedback);
-        self.right
-            .line
-            .write(right_buffer, dry * (1.0 - cross) + right_feedback);
+        // And into the register through its anti-alias filter.
+        let left_input = self.left.anti_alias.low(dry + left_feedback);
+        let right_input = self
+            .right
+            .anti_alias
+            .low(dry * (1.0 - cross) + right_feedback);
+        self.left.line.write(left_buffer, left_input);
+        self.right.line.write(right_buffer, right_input);
 
         if self.mix <= 0.001 {
             frame.set_mono(dry);
@@ -203,10 +262,11 @@ impl Echo {
 
     #[inline]
     fn loop_path(channel: &mut Channel, input: f32) -> f32 {
-        let band_limited = channel.lowpass.low(channel.highpass.high(input));
-        // The repeats saturate before they clip; this is why a runaway analog
-        // echo howls instead of tearing.
-        channel.limiter.process(band_limited * 0.9) * 1.1
+        // The band-limiting already happened on the way out of the register;
+        // what the feedback path adds is its coupling capacitor and the
+        // saturation that keeps a runaway howling instead of tearing.
+        let coupled = channel.highpass.high(input);
+        channel.limiter.process(coupled * 0.9) * 1.1
     }
 }
 
@@ -247,6 +307,41 @@ mod tests {
         assert!(
             error < 0.02,
             "the repeat arrived at sample {peak_index}, expected {expected}"
+        );
+    }
+
+    #[test]
+    fn a_longer_delay_darkens_the_repeats() {
+        // The register's clock is the delay control, so the two cannot be set
+        // independently — which is exactly the behaviour these pedals have.
+        let sample_rate = 48_000.0;
+        let treble_after_a_repeat = |delay_ms: f32| {
+            let (mut left_buffer, mut right_buffer) = buffers(sample_rate);
+            let mut echo = Echo::default();
+            echo.prepare(&mut left_buffer, &mut right_buffer, sample_rate);
+            echo.set_controls(delay_ms, 0.6, 1.0, 0.0, EchoMode::Analog);
+            let mut energy = 0.0_f32;
+            let samples = (sample_rate * 2.0) as usize;
+            let onset = (delay_ms * 0.001 * sample_rate) as usize + 2_000;
+            for index in 0..samples {
+                let input = if index < 480 {
+                    crate::math::sin(crate::math::TAU * 3_000.0 * index as f32 / sample_rate)
+                } else {
+                    0.0
+                };
+                let output = echo.process(&mut left_buffer, &mut right_buffer, Frame::mono(input));
+                if index > onset {
+                    energy += output.left * output.left;
+                }
+            }
+            energy
+        };
+
+        let short = treble_after_a_repeat(60.0);
+        let long = treble_after_a_repeat(600.0);
+        assert!(
+            long < short * 0.25,
+            "a long delay should lose far more treble: {long} against {short}"
         );
     }
 

@@ -7,7 +7,7 @@
 //! own length instead of trusting the slice it is given.
 
 use crate::circuit::filters::{OnePole, RmsFollower};
-use crate::math::{clamp, floor, sanitise};
+use crate::math::{abs, clamp, floor, sanitise};
 
 /// A circular delay line with fractional read-out.
 #[derive(Clone, Copy, Default)]
@@ -129,10 +129,30 @@ impl Compander {
 
 /// One bucket-brigade device: a clocked analog shift register.
 ///
-/// The clock rate sets the delay (`stages / (2 * clock)`), the register is
-/// band-limited on both sides, and the companding above hides its noise. The
-/// delay is swept by moving the clock, which is why a real BBD chorus changes
-/// pitch rather than crossfading.
+/// The delay control is the clock, and the clock is the sampling rate:
+///
+/// ```text
+/// delay = stages / (2 · f_clock)
+/// ```
+///
+/// Almost everything people say about these chips comes out of that single
+/// relation.
+///
+/// * **Longer delay means darker.** A 4096-stage register set to 400 ms is
+///   clocked at 5.1 kHz, so its Nyquist is 2.6 kHz — the repeats *have* to be
+///   dark. The same chip at 40 ms clocks ten times faster and sounds it. A
+///   fixed lowpass cannot do that, and a fixed lowpass is what this model had.
+/// * **A swept clock breathes.** In a chorus the clock moves with the LFO, so
+///   the register's bandwidth moves too: the top dulls slightly at one end of
+///   the sweep and opens at the other.
+/// * **Charge transfer is imperfect.** Each stage keeps a little of the packet
+///   behind, which across N stages is a lowpass whose corner is a fixed
+///   fraction of the clock — the same fraction whatever the delay, which is
+///   why the two effects above are one effect.
+///
+/// What is *not* modelled: the aliasing a real register folds back when the
+/// clock is low and the anti-alias filter is gentle. The band-limiting that
+/// dominates the sound is here; the fold-back is not.
 #[derive(Clone, Copy, Default)]
 pub struct BucketBrigade {
     line: DelayLine,
@@ -142,27 +162,76 @@ pub struct BucketBrigade {
     compander: Compander,
     compander_second: Compander,
     sample_rate: f32,
+    /// How many stages the register has. An MN3007 has 1024, an MN3005 4096.
+    stages: f32,
+    /// The widest the filters are allowed to open, whatever the clock says:
+    /// the fixed filters around the chip.
+    ceiling_hz: f32,
+    clock_hz: f32,
 }
 
+/// The fraction of the clock at which charge-transfer loss has taken the
+/// register's response down. Published measurements of these parts put the
+/// usable bandwidth somewhere near a quarter of the clock, well below the
+/// Nyquist the sampling alone would allow.
+const BANDWIDTH_PER_CLOCK: f32 = 0.25;
+
 impl BucketBrigade {
-    pub fn prepare(&mut self, buffer: &mut [f32], sample_rate: f32, maximum_delay_seconds: f32) {
+    pub fn prepare(
+        &mut self,
+        buffer: &mut [f32],
+        sample_rate: f32,
+        maximum_delay_seconds: f32,
+        stages: f32,
+    ) {
         let length = (sample_rate * maximum_delay_seconds) as usize + 8;
         self.line.prepare(buffer, length);
         self.sample_rate = sample_rate;
-        // A MN3007 running fast enough for a 5 ms chorus delay clocks near
-        // 100 kHz; the filters around it are set well below that.
-        self.anti_alias = OnePole::new(6_500.0, sample_rate);
-        self.reconstruction = OnePole::new(6_000.0, sample_rate);
-        self.reconstruction_second = OnePole::new(6_000.0, sample_rate);
+        self.stages = stages.max(16.0);
+        // The fixed filters soldered around the chip. The clock-dependent part
+        // is applied on top of these, and whichever is lower wins.
+        self.ceiling_hz = 6_000.0;
+        self.anti_alias = OnePole::new(self.ceiling_hz, sample_rate);
+        self.reconstruction = OnePole::new(self.ceiling_hz, sample_rate);
+        self.reconstruction_second = OnePole::new(self.ceiling_hz, sample_rate);
         self.compander.prepare(sample_rate);
         self.compander_second.prepare(sample_rate);
+        self.clock_hz = 0.0;
     }
 
-    pub fn set_bandwidth(&mut self, cutoff_hz: f32) {
-        self.anti_alias.set_cutoff(cutoff_hz, self.sample_rate);
-        self.reconstruction.set_cutoff(cutoff_hz, self.sample_rate);
+    /// The fixed filters around the register.
+    pub fn set_ceiling(&mut self, cutoff_hz: f32) {
+        self.ceiling_hz = clamp(cutoff_hz, 200.0, 20_000.0);
+        self.clock_hz = 0.0;
+    }
+
+    /// The clock this delay implies, in hertz.
+    pub fn clock_for(&self, delay_seconds: f32) -> f32 {
+        let delay = delay_seconds.max(1.0e-6);
+        self.stages / (2.0 * delay)
+    }
+
+    /// The register's bandwidth at its current clock, in hertz.
+    pub fn bandwidth(&self) -> f32 {
+        (self.clock_hz * BANDWIDTH_PER_CLOCK).min(self.ceiling_hz)
+    }
+
+    /// Points the filters at the clock this delay implies. Cheap enough to call
+    /// per sample — the coefficients only move when the delay does.
+    #[inline]
+    fn follow_clock(&mut self, delay_seconds: f32) {
+        let clock = self.clock_for(delay_seconds);
+        // A tenth of a percent of clock movement is inaudible; skipping those
+        // keeps a swept delay from recomputing coefficients on every sample.
+        if abs(clock - self.clock_hz) < self.clock_hz * 0.001 {
+            return;
+        }
+        self.clock_hz = clock;
+        let cutoff = self.bandwidth();
+        self.anti_alias.set_cutoff(cutoff, self.sample_rate);
+        self.reconstruction.set_cutoff(cutoff, self.sample_rate);
         self.reconstruction_second
-            .set_cutoff(cutoff_hz, self.sample_rate);
+            .set_cutoff(cutoff, self.sample_rate);
     }
 
     pub fn clear(&mut self, buffer: &mut [f32]) {
@@ -182,6 +251,7 @@ impl BucketBrigade {
     /// Reads the delayed sample and clocks one new sample in.
     #[inline]
     pub fn process(&mut self, buffer: &mut [f32], input: f32, delay_seconds: f32) -> f32 {
+        self.follow_clock(delay_seconds);
         let delayed = self.read(buffer, delay_seconds);
         let expanded = self.compander.expand(self.reconstruction.low(delayed));
         let compressed = self.compander.compress(self.anti_alias.low(input));
@@ -199,6 +269,7 @@ impl BucketBrigade {
         first_delay_seconds: f32,
         second_delay_seconds: f32,
     ) -> (f32, f32) {
+        self.follow_clock(first_delay_seconds);
         let first = self.read(buffer, first_delay_seconds);
         let second = self.read(buffer, second_delay_seconds);
         let first_out = self.compander.expand(self.reconstruction.low(first));
@@ -241,11 +312,60 @@ mod tests {
     }
 
     #[test]
+    fn the_clock_is_the_delay_control() {
+        // 4096 stages at 400 ms is a 5.1 kHz clock, and a quarter of that is
+        // all the bandwidth the register has left.
+        let sample_rate = 48_000.0;
+        let mut buffer = [0.0_f32; 8_192];
+        let mut bbd = BucketBrigade::default();
+        bbd.prepare(&mut buffer, sample_rate, 0.15, 4_096.0);
+        let slow = bbd.clock_for(0.4);
+        let quick = bbd.clock_for(0.04);
+        assert!(
+            (4_500.0..5_800.0).contains(&slow),
+            "400 ms should clock near 5 kHz, got {slow}"
+        );
+        assert!(
+            (quick / slow - 10.0).abs() < 0.01,
+            "ten times the delay should be a tenth of the clock"
+        );
+    }
+
+    #[test]
+    fn a_longer_delay_is_a_darker_one() {
+        // The characteristic every analog echo has and no fixed filter can
+        // give: the repeats darken as the delay lengthens, because the clock
+        // slows down and takes the register's bandwidth with it.
+        let sample_rate = 48_000.0;
+        let treble_through = |delay: f32| {
+            let mut buffer = [0.0_f32; 32_768];
+            let mut bbd = BucketBrigade::default();
+            bbd.prepare(&mut buffer, sample_rate, 0.5, 4_096.0);
+            let mut output = std::vec::Vec::new();
+            for index in 0..48_000 {
+                let value = 0.3 * sin(TAU * 3_000.0 * index as f32 / sample_rate);
+                let sample = bbd.process(&mut buffer, value, delay);
+                if index > 24_000 {
+                    output.push(sample);
+                }
+            }
+            crate::testing::magnitude_at(&output, 3_000.0, sample_rate)
+        };
+
+        let short = treble_through(0.04);
+        let long = treble_through(0.4);
+        assert!(
+            long < short * 0.5,
+            "the long delay should be much darker: {long} against {short}"
+        );
+    }
+
+    #[test]
     fn a_bucket_brigade_line_passes_a_recognisable_signal() {
         let sample_rate = 48_000.0;
         let mut buffer = [0.0_f32; 8_192];
         let mut bbd = BucketBrigade::default();
-        bbd.prepare(&mut buffer, sample_rate, 0.15);
+        bbd.prepare(&mut buffer, sample_rate, 0.15, 1_024.0);
         let mut peak = 0.0_f32;
         for index in 0..24_000 {
             let input = 0.4 * sin(TAU * 440.0 * index as f32 / sample_rate);

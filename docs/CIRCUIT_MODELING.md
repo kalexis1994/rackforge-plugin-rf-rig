@@ -228,6 +228,38 @@ quotient it computes is catastrophically ill-conditioned when consecutive
 samples are close, so the fallback threshold has to be *relative*. Before it
 was, a compressor fed a two-millivolt sine put out more noise than signal.
 
+## Bucket-brigade lines
+
+The chorus and the analog echo share a model of a clocked analog shift
+register, and the whole of it follows from one relation:
+
+```text
+delay = stages / (2 · f_clock)
+```
+
+The delay control *is* the clock, and the clock is the sampling rate. So:
+
+* **Moving the clock moves the pitch**, which is why an analog chorus sounds
+  like a second player and a crossfading digital one does not.
+* **A longer delay is a darker one.** A 4096-stage register set to 400 ms is
+  clocked at 5.1 kHz; charge-transfer loss leaves it roughly a quarter of that,
+  and treble cannot survive. Measured on the model at 3 kHz, against a 60 ms
+  setting: −17.9 dB at 300 ms, −37.5 dB at 600 ms, −56 dB at 1200 ms. A fixed
+  filter cannot produce that, and a fixed filter is what this was before.
+* **A swept clock breathes**, because the register's bandwidth sweeps with it.
+
+The filtering happens *on the way through* the register — anti-alias in,
+reconstruction out — not only on the way round the feedback loop. That
+distinction is audible with the repeats control down, where the loop is barely
+running and the first repeat should already be dark; with the filter in the
+wrong place it came back at full bandwidth, which is what the measurement
+showed.
+
+A compander surrounds the register, because its own noise floor would otherwise
+be audible on every repeat, and the compressor and expander are not perfectly
+complementary — that mismatch is part of the character. The feedback path adds
+its coupling capacitor and a soft limit, so a runaway howls instead of tearing.
+
 ## What is measured, and what is still assumed
 
 **Solved from component values**
@@ -242,7 +274,7 @@ was, a compressor fed a two-millivolt sine put out more noise than signal.
 * The overdrive's and distortion's frequency-dependent gain networks.
 * Loading: pedal to pedal inside the board, and the pickup's resonance against
   whatever the first pedal presents.
-* The BBD sweep, band-limiting and companding structure.
+* The BBD's clock, and the band-limiting and companding that follow from it.
 * The echo's in-loop filtering and its two modes.
 
 **Structurally right, numerically approximate — and marked as such in the code**
@@ -256,8 +288,9 @@ was, a compressor fed a two-millivolt sine put out more noise than signal.
 **Not attempted yet**
 * Component tolerance and temperature drift.
 * Power supply sag.
-* A clock-accurate bucket-brigade line: the aliasing of a real BBD is part of
-  its sound, and the current model band-limits it away.
+* The aliasing a bucket-brigade register folds back when its clock is low and
+  the filter ahead of it is gentle. The band-limiting that dominates the sound
+  is modelled; the fold-back is not.
 
 ## How to move an item up that list
 
