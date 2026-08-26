@@ -13,13 +13,18 @@
 //! attenuation still reaches the knee, which is why these compressors thicken
 //! transients instead of only ducking them.
 //!
+//! The detector is the circuit's, not a coefficient pair: a rectifier charging
+//! a timing capacitor through a diode (`circuit::rectifier`). That gives the
+//! pedal a real threshold, an attack that depends on how far above the
+//! capacitor the signal sits, and a release that is an RC discharge.
+//!
 //! Controls follow the two-knob original plus the attack trimmer later units
 //! exposed: `sustain` sets how hard the rectifier pulls the bias down, `attack`
-//! sets the detector timing, `level` is make-up gain.
+//! moves the timing network, `level` is make-up gain.
 
-use crate::circuit::dynamics::EnvelopeFollower;
 use crate::circuit::filters::{CouplingCap, OnePole};
 use crate::circuit::ota::TransconductanceCell;
+use crate::circuit::rectifier::RectifierDetector;
 use crate::math::{clamp, exponential, lerp};
 
 /// A buffered input, as this family has: what drives it barely matters.
@@ -44,7 +49,7 @@ const MINIMUM_BIAS: f32 = 4.0e-6;
 pub struct Compressor {
     input_cap: CouplingCap,
     detector_highpass: OnePole,
-    detector: EnvelopeFollower,
+    detector: RectifierDetector,
     cell: TransconductanceCell,
     output_lowpass: OnePole,
     previous_output: f32,
@@ -65,7 +70,7 @@ impl Compressor {
         // duck the whole chain: the detector is deliberately deaf to it.
         self.detector_highpass = OnePole::new(120.0, sample_rate);
         self.output_lowpass = OnePole::new(9_000.0, sample_rate);
-        self.detector = EnvelopeFollower::new(6.0, 260.0, sample_rate);
+        self.detector.prepare(sample_rate);
         self.cell = TransconductanceCell::new(LOAD_RESISTANCE);
         self.bias_current = QUIESCENT_BIAS;
         self.sensitivity = 3.0e-4;
@@ -87,18 +92,21 @@ impl Compressor {
     pub fn set_controls(&mut self, sustain: f32, attack: f32, level: f32) {
         // How many amperes of bias the rectifier removes per volt of output.
         //
-        // This number sets where the loop settles. Solving the feedback
-        // equation, `out = in·G·(Iq − s·out)`, gives a ceiling of `Iq/s` as the
-        // input grows: 2 V at the bottom of the travel, where the pedal is
-        // effectively clean, and 25 mV at the top, where everything sustains
-        // forever.
-        self.sensitivity = exponential(clamp(sustain, 0.0, 1.0), 2.5e-4, 2.0e-2);
-        // The attack trimmer moves the whole timing network, so release follows
-        // attack instead of being independent.
-        let attack_ms = lerp(1.5, 28.0, clamp(attack, 0.0, 1.0));
-        let release_ms = lerp(120.0, 700.0, clamp(attack, 0.0, 1.0));
-        self.detector
-            .set_times(attack_ms, release_ms, self.sample_rate);
+        // This number sets where the loop settles. The control voltage is
+        // roughly the output peak times the detector's own gain, so the ceiling
+        // is near `Iq / (gain·s)`: volts at the bottom of the travel, where the
+        // pedal is effectively clean, and tens of millivolts at the top, where
+        // everything sustains forever.
+        self.sensitivity = exponential(clamp(sustain, 0.0, 1.0), 2.0e-5, 1.5e-3);
+        // The trimmer moves the timing network itself: more resistance in the
+        // charging path slows the attack, and a larger bleed resistor holds the
+        // capacitor longer. They move together because one trimmer does both in
+        // the pedals that expose it.
+        let attack = clamp(attack, 0.0, 1.0);
+        self.detector.set_timing(
+            lerp(300.0, 6_000.0, attack),
+            lerp(33_000.0, 220_000.0, attack),
+        );
         self.makeup = exponential(clamp(level, 0.0, 1.0), 0.25, 8.0);
     }
 
@@ -109,9 +117,9 @@ impl Compressor {
         // Feedback detection: the rectifier watches the previous output, not
         // the input.
         let observed = self.detector_highpass.high(self.previous_output);
-        let envelope = self.detector.process(observed);
-        // The rectifier steals bias current from the cell.
-        let bias = QUIESCENT_BIAS - self.sensitivity * envelope;
+        let control = self.detector.process(observed);
+        // The control voltage steals bias current from the cell.
+        let bias = QUIESCENT_BIAS - self.sensitivity * control;
         self.bias_current = if bias < MINIMUM_BIAS {
             MINIMUM_BIAS
         } else {
@@ -127,10 +135,15 @@ impl Compressor {
         self.output_lowpass.low(cell_output * self.makeup)
     }
 
-    /// The cell's current small-signal gain, for the lab tool and for tests
-    /// that want to see the loop working rather than infer it.
-    pub fn gain_reduction(&self) -> f32 {
+    /// What the gain cell is doing right now, through the input divider: the
+    /// loop's working, visible rather than inferred.
+    pub fn cell_gain(&self) -> f32 {
         self.cell.gain(self.bias_current) * INPUT_ATTENUATION
+    }
+
+    /// The whole pedal's instantaneous small-signal gain, make-up included.
+    pub fn current_gain(&self) -> f32 {
+        self.cell_gain() * self.makeup
     }
 }
 
@@ -187,7 +200,7 @@ mod tests {
             heavy_peak < gentle_peak,
             "more sustain did not reduce the level: {heavy_peak} vs {gentle_peak}"
         );
-        assert!(heavy.gain_reduction() < gentle.gain_reduction());
+        assert!(heavy.cell_gain() < gentle.cell_gain());
     }
 
     #[test]
@@ -215,6 +228,20 @@ mod tests {
         assert!(
             distortion > 0.01,
             "the gain cell added nothing at all: {distortion}"
+        );
+    }
+
+    #[test]
+    fn a_signal_under_the_detector_threshold_passes_untouched() {
+        // The rectifier has a real knee, so there is a level below which this
+        // pedal is a gain stage and nothing else.
+        let sample_rate = 48_000.0;
+        let mut unit = compressor(0.9, 0.5, sample_rate);
+        let quiet = peak_of(&mut unit, 0.004, sample_rate);
+        let expected = 0.004 * unit.current_gain();
+        assert!(
+            (quiet / expected - 1.0).abs() < 0.15,
+            "the loop moved on a signal under its threshold: {quiet} against {expected}"
         );
     }
 

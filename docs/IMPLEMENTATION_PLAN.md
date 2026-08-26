@@ -10,7 +10,7 @@
 * Adapter: `wasm-v1` component, sample-accurate automation, state save/load.
 * Package: schema-2 manifest declaring a mono input and stereo output bus,
   generated metadata, generated branding, static PLAY surface.
-* Tests: 123 covering the contract, each circuit block, each pedal's behaviour,
+* Tests: 128 covering the contract, each circuit block, each pedal's behaviour,
   the chain and the adapter — plus a guard that loads the built component in the
   host's own runtime, and a bench that reports what the board costs.
 
@@ -75,18 +75,22 @@ that.
    pedal presents — modelled as the *difference* between that load and the one
    the signal was captured through, so it collapses to a wire when they match.
 
+7. **The compressor's detector** (`circuit/rectifier.rs`). A diode charging a
+   timing capacitor, solved, in place of an envelope follower's coefficient
+   pair. It brought a real threshold — under it the pedal is a clean gain stage
+   whatever the sustain control says — a level-dependent attack, and an RC
+   release. The ratio now runs from 1.08:1 at the bottom of the control to 8:1
+   at the top, where before the whole travel was one shape.
+
 ### Next, in order of expected audible return
 
-1. **The rectifier that drives the compressor's bias.** A modelled current
-   source instead of a linear law, which is what decides how the pedal recovers
-   after a chord.
-2. **Component tolerance.** A seed per instance, values drifting inside their
+1. **Component tolerance.** A seed per instance, values drifting inside their
    stated tolerance, so two instances are not identical — the reason two units
    of the same pedal never quite match.
-3. **A clock-accurate bucket-brigade line.** Resampling at the clock rate rather
+2. **A clock-accurate bucket-brigade line.** Resampling at the clock rate rather
    than reading a fractional delay: the aliasing of a real BBD is part of its
    sound, and the current model band-limits it away.
-4. **Canonical values for the remaining two tone networks**, from a trace or a
+3. **Canonical values for the remaining two tone networks**, from a trace or a
    published analysis.
 
 ## Pedals not yet on the board
@@ -107,7 +111,7 @@ that.
 ## Performance
 
 Measured, per 512-frame block at 48 kHz on the development desktop: the whole
-board engaged costs 11.8 % of one core, and the fuzz — three transistor stages,
+board engaged costs 12.0 % of one core, and the fuzz — three transistor stages,
 each solved four times per sample — is 5.0 % of that. The table is in
 [`MEASUREMENT.md`](MEASUREMENT.md), and the bench that produces it is
 `cargo test --release -p rf-rig-dsp --test bench_blocks -- --ignored --nocapture`.

@@ -20,7 +20,7 @@ techniques it draws on are nodal state-space models (the DK method), wave
 digital filters, and antiderivative antialiasing for memoryless shapers.
 Sources are listed in [`REFERENCES.md`](REFERENCES.md).
 
-## Four devices, four equations
+## Five devices, five equations
 
 Every nonlinear thing in RF-Rig is one of these, solved rather than shaped.
 
@@ -76,6 +76,33 @@ attenuates by thirty before it and the cell's own knee is what thickens a pick
 attack. The bias current is the control input, and the rectifier steals from it:
 solving the loop, `out = in·G·(Iq − s·out)`, gives a ceiling of `Iq/s`, which is
 what the sustain control actually sets.
+
+### The rectifier that drives it
+
+The gain cell needs a control voltage, and where that comes from is half the
+character. Not an envelope follower with an attack coefficient and a release
+coefficient — a diode pushing current into a timing capacitor, with a resistor
+bleeding it away (`circuit/rectifier.rs`):
+
+```text
+(|audio|·A − Vc − Vd)/Rs = Is·(exp(Vd/(n·Vt)) − 1)
+```
+
+solved by Newton like every other junction here. Three things follow that a
+coefficient pair cannot produce:
+
+* **a real threshold** — below the diode's knee, referred back through the
+  control path's gain, nothing reaches the capacitor and the pedal is a clean
+  gain stage. Measured: with the sustain control at zero, half, and maximum, a
+  4 mV input comes out at exactly the same level in all three;
+* **an attack that depends on level** — a hard transient reaches a given
+  control voltage far sooner than a soft one, which is what "it grabs" means;
+* **a release that is an RC discharge**, one time constant of the components
+  rather than a number in a table.
+
+The whole curve follows: 1.08:1 at the bottom of the sustain control, 2.4:1 at
+noon, 8:1 at the top, with a soft knee throughout and under 0.3 % distortion
+until the cell's own knee is reached.
 
 ### The tone network
 
@@ -181,7 +208,8 @@ was, a compressor fed a two-millivolt sine put out more noise than signal.
 * The transistor stages: bias point, asymmetry, coupling, and the diodes inside
   the same solve.
 * All three tone networks, checked against a direct solve of their netlists.
-* The compressor's gain cell and the feedback loop around it.
+* The compressor's gain cell, the rectifier that controls it, and the
+  feedback loop around both.
 * The overdrive's and distortion's frequency-dependent gain networks.
 * Loading: pedal to pedal inside the board, and the pickup's resonance against
   whatever the first pedal presents.
@@ -191,8 +219,6 @@ was, a compressor fed a two-millivolt sine put out more noise than signal.
 **Structurally right, numerically approximate — and marked as such in the code**
 * The distortion's and overdrive's tone networks use the correct topology with
   representative values; only the fuzz's are the published ones.
-* The rectifier that drives the compressor's bias current is a linear law, not a
-  modelled transistor current source.
 * The op-amp gain stages are ideal apart from an explicit supply limit.
 * The reverb is a plausible spring and plate, not a measured tank.
 * The buffered pedals' input impedances are the family's published figures

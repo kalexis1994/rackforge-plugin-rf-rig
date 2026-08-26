@@ -16,6 +16,7 @@ pub mod filters;
 pub mod nonlinear;
 pub mod ota;
 pub mod oversample;
+pub mod rectifier;
 pub mod source;
 pub mod tonestack;
 pub mod transistor;
