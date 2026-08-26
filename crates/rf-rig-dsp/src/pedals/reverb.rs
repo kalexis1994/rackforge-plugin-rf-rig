@@ -6,13 +6,16 @@
 //! plate is a thin sheet with an enormous modal density and almost no early
 //! reflection pattern, which is why it sounds dense from the first millisecond.
 //!
-//! The two modes here differ in their diffusion lengths, their damping and
-//! whether the dispersive all-pass chain is in circuit — the same three things
-//! that separate the physical devices.
+//! So they are not two settings of one algorithm here. The spring is a
+//! waveguide — a transit delay, a dispersion chain and a reflection, in
+//! `circuit::spring` — because that is what a spring is. The plate is a
+//! feedback delay network, because a plate has no propagation direction worth
+//! naming and everything about it is modal density.
 
 use crate::Frame;
 use crate::circuit::delay::DelayLine;
 use crate::circuit::filters::{Allpass1, OnePole};
+use crate::circuit::spring::{SPRINGS, SpringTank};
 use crate::math::{clamp, exponential, lerp};
 
 /// A buffered input: high enough that what drives it barely matters, which is
@@ -55,8 +58,12 @@ impl Diffuser {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Default)]
 pub struct Reverb {
+    springs: SpringTank,
+    /// The two modes share the workspace, so switching has to wipe whatever the
+    /// other one left behind.
+    pending_clear: bool,
     diffusers: [Diffuser; 4],
     tank: [DelayLine; 4],
     tank_delay_samples: [f32; 4],
@@ -82,8 +89,17 @@ impl Reverb {
         })
     }
 
+    /// How much of the workspace the spring tank claims. It shares the
+    /// reverb's memory with the plate; only one of them runs at a time.
+    fn spring_span(buffer: &[f32]) -> usize {
+        (buffer.len() / LINE_COUNT) * SPRINGS
+    }
+
     pub fn prepare(&mut self, buffer: &mut [f32], sample_rate: f32) {
         self.sample_rate = sample_rate;
+        let span = Self::spring_span(buffer);
+        self.springs.prepare(&mut buffer[..span], sample_rate);
+        self.pending_clear = true;
         let capacity = (sample_rate * MAXIMUM_LINE_SECONDS) as usize + 8;
         let lines = Self::split(buffer);
         for (index, diffuser) in self.diffusers.iter_mut().enumerate() {
@@ -104,6 +120,8 @@ impl Reverb {
     }
 
     pub fn reset(&mut self, buffer: &mut [f32]) {
+        let span = Self::spring_span(buffer);
+        self.springs.clear(&mut buffer[..span]);
         let lines = Self::split(buffer);
         for (index, diffuser) in self.diffusers.iter_mut().enumerate() {
             diffuser.line.clear(lines[index]);
@@ -121,6 +139,9 @@ impl Reverb {
     }
 
     fn apply_mode(&mut self, mode: ReverbMode) {
+        if mode != self.mode {
+            self.pending_clear = true;
+        }
         self.mode = mode;
         let (diffusion, tank) = match mode {
             ReverbMode::Spring => (SPRING_DIFFUSION_MS, SPRING_TANK_MS),
@@ -155,6 +176,10 @@ impl Reverb {
         for section in self.damping.iter_mut() {
             section.set_cutoff(cutoff, self.sample_rate);
         }
+        // A spring tank's decay is the reflection at its ends, and it cannot
+        // hold on the way a plate does.
+        self.springs
+            .set_controls(lerp(0.35, 0.9, clamp(decay, 0.0, 1.0)), cutoff);
         self.mix = clamp(mix, 0.0, 1.0);
     }
 
@@ -167,18 +192,27 @@ impl Reverb {
             return frame;
         }
 
+        if self.pending_clear {
+            // The other mode's memory is still in there. A switch is a user
+            // action, so one block's worth of clearing is the right place to
+            // pay for it.
+            buffer.fill(0.0);
+            self.pending_clear = false;
+        }
+
+        if self.mode == ReverbMode::Spring {
+            let span = Self::spring_span(buffer);
+            let excited = self.input_highpass.high(dry);
+            let (left, right) = self.springs.process(&mut buffer[..span], excited);
+            frame.set_stereo(dry + left * self.mix, dry + right * self.mix);
+            return frame;
+        }
+
         let lines = Self::split(buffer);
 
         let mut signal = self.input_highpass.high(dry);
         for (index, diffuser) in self.diffusers.iter_mut().enumerate() {
             signal = diffuser.process(lines[index], signal);
-        }
-        if self.mode == ReverbMode::Spring {
-            // Dispersion: the reason a spring chirps. Frequency-dependent
-            // delay, no amplitude change.
-            for section in self.dispersion.iter_mut() {
-                signal = section.process(signal);
-            }
         }
 
         let mut taps = [0.0_f32; 4];

@@ -100,7 +100,7 @@ Per 512-frame block at 48 kHz, on the development desktop, as a fraction of the
 | fuzz | 549 | 5.1 % |
 | chorus | 55 | 0.5 % |
 | delay | 44–48 | 0.4 % |
-| reverb | 74 | 0.7 % |
+| reverb | 67 plate, 391 spring | 0.6 % / 3.7 % |
 | everything engaged | 1196 | 11.2 % |
 
 The dirt pedals dominate, because each one solves circuit equations four times

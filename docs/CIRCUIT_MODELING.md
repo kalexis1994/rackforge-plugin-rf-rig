@@ -228,6 +228,38 @@ quotient it computes is catastrophically ill-conditioned when consecutive
 samples are close, so the fallback threshold has to be *relative*. Before it
 was, a compressor fed a two-millivolt sine put out more noise than signal.
 
+## The spring tank
+
+A spring reverb is not a small room, and it is not a plate with different
+numbers. It is two or three helical springs with a transducer at one end and a
+pickup at the other, and a spring is **dispersive**: the speed of a wave along
+it depends on frequency. High frequencies arrive first, the low end trails, and
+one impulse comes back as a descending chirp. That is the "boing", and nothing
+about a diffusion network produces it.
+
+`circuit/spring.rs` models each spring as the transmission line it is — a
+transit delay, a dispersion chain, a loss, and the reflection that sends the
+wave back down it, so the tank rings and every pass lays another chirp on the
+last. Three springs of different lengths, because a real tank has them and it is
+why the arrivals never line up into a comb.
+
+The dispersion is a cascade of first-order all-pass sections, which is the
+established way to build one. For `H(z) = (a + z⁻¹)/(1 + a z⁻¹)` the group
+delay is `(1 − a²)/(1 + 2a·cos ω + a²)`: `(1−a)/(1+a)` at direct current and
+`(1+a)/(1−a)` at Nyquist. **The sign of `a` decides which end trails**, and
+getting it backwards is not a subtle error — it delays exactly the part the
+tank's own damping then removes, so the chirp collapses into a click. That is
+what the first version of this did, and what a test that asked for a spread
+response rather than a click caught.
+
+Honest about what is chosen rather than derived: the section count and the
+coefficient are picked *together* to give a chirp of about twenty-five
+milliseconds, and many pairs do. They differ in the shape of the sweep between
+the two ends, and only a real tank's dispersion curve would settle both. What is
+structural — the direction of the sweep, each reflection adding another, the
+spacing of the arrivals, the way the tank cannot hold a tail the way a plate
+does — comes from the topology.
+
 ## Bucket-brigade lines
 
 The chorus and the analog echo share a model of a clocked analog shift
@@ -280,7 +312,10 @@ its coupling capacitor and a soft limit, so a runaway howls instead of tearing.
 **Structurally right, numerically approximate — and marked as such in the code**
 * The distortion's and overdrive's tone networks use the correct topology with
   representative values; only the fuzz's are the published ones.
-* The reverb is a plausible spring and plate, not a measured tank.
+* The spring tank's dispersion has the right shape and length, but the
+  section count and coefficient were chosen as a pair rather than fitted to a
+  measured curve. The plate is a plausible feedback delay network, not a
+  measured plate.
 * The buffered pedals' input impedances are the family's published figures
   rather than solved from their buffer stages: an emitter follower's only
   audible job is that number, so it is declared instead of computed.

@@ -91,6 +91,13 @@ that.
    gain magnify the solver's error into the next sample, and the output grew
    over seconds. Solving for the output fixed it and was faster.
 
+10. **The spring tank as a waveguide** (`circuit/spring.rs`). A transit delay,
+    a dispersion chain and a reflection per spring, three springs of different
+    lengths — so an impulse comes back as a descending chirp and each pass adds
+    another, instead of a diffusion network pretending. The sign of the
+    all-pass coefficient turned out to be the whole thing: backwards, it delays
+    the part the damping removes and the chirp becomes a click.
+
 ### Next, in order of expected audible return
 
 1. **Component tolerance.** A seed per instance, values drifting inside their
@@ -101,6 +108,9 @@ that.
    sound, and the current model band-limits it away.
 3. **Canonical values for the remaining two tone networks**, from a trace or a
    published analysis.
+4. **A measured dispersion curve for the spring tank**, which would settle the
+   section count and the all-pass coefficient together instead of as a chosen
+   pair.
 
 ## Pedals not yet on the board
 

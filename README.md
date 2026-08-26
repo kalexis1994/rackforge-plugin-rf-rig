@@ -56,7 +56,7 @@ The method, and an honest list of what is still approximated, is in
 | **Fuzz** | A booster into two transistor clipping stages, each solved from Ebers-Moll with its diodes inside the same system. They bias at 0.97 V and clip asymmetrically because that is how much room the collector has. |
 | **Chorus** | Bucket-brigade line with companding and a swept clock, so the delayed copy is genuinely pitch-shifted rather than crossfaded. |
 | **Delay** | The same line as an echo: band-limited *inside* the feedback loop so each repeat darkens, plus a clean digital mode. |
-| **Reverb** | A dispersive spring tank, or a plate built as a feedback delay network. |
+| **Reverb** | A spring tank built as the dispersive transmission line it is — transit, dispersion, reflection, three springs — so one note comes back as a descending chirp and each pass adds another. Or a plate, built as a feedback delay network, because that is what a plate is. |
 
 Plus a rig strip: a source selector, input trim, output level and a noise gate.
 
