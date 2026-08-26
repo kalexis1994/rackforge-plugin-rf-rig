@@ -79,6 +79,46 @@ it holds no private list of pedals — the only convention it relies on is that
 Reordering writes positions. There is no side channel: the host validates each
 write, the values live in plugin state, and a controller could automate them.
 
+### What the surface has to survive
+
+A Rack Slot edits its plugin through an isolated instance: every
+`set_parameter` opens a plugin, loads state, applies one value and saves it
+again. Every one of those moves the session revision, and every revision sends
+a fresh context to every surface — including the one that caused it. So the
+page is not talking to a fast, quiet host; it is talking to a slow one that
+answers back louder than it was asked. Four rules follow.
+
+**Build once, patch after.** The board's DOM is constructed when the schema
+arrives and only ever patched. Rebuilding it on each context — which is to say,
+on each of the page's own writes — would destroy the control under the hand
+between one frame of a drag and the next.
+
+**Pace the writes, and coalesce them.** Values are queued per parameter and
+sent one at a time, at most sixteen a second, with the interval enforced
+*between* writes rather than between flushes. Pacing off the host's replies
+instead would make a fast host the worst case: answer in fifteen milliseconds
+and the page would gratefully ask sixty-six times a second. Waiting also lets a
+knob still in motion overwrite its own queued value, so eighty pointer moves
+across one gesture become one write carrying the value the gesture ended on.
+
+**A value being edited belongs to whoever is editing it.** While a control is
+held, incoming values for that parameter are ignored, and reads are deferred
+entirely. Gestures are registered so that any of them can be ended from
+outside — a window that loses focus mid-drag would otherwise leave a control
+held forever, and a held control never accepts another value from the host.
+
+**Believe a reply only if it describes a later moment than the last write.**
+Reads carry the write epoch they were issued at; a value written since is not
+overwritten by an answer that predates it. Checking the queue is not enough,
+because between leaving the queue and being acknowledged a write exists nowhere
+a reply can see it. Every request also times out: there is no message that says
+the plugin died, only silence, and a queue that waits forever on silence never
+moves again.
+
+`tools/ui-preview.html` reproduces all of it — latency, refusals, a context
+after every write, and a host that stops answering — because a surface that
+only works against an instant, perfect host has not been tested.
+
 ## Real-time behaviour
 
 * No allocation, no locking, no I/O, no logging in `process`.

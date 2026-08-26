@@ -123,6 +123,12 @@ protocol the host does.
 python -m http.server 8131
 ```
 
+The preview is not a friendly host. It has controls for write latency, a
+refusal rate, a context echoed after every write — which is what a Rack Slot
+really does — and a switch that makes it stop answering altogether. The page is
+expected to stay usable under all of them; `window.__preview` exposes the write
+counters so that can be checked rather than eyeballed.
+
 More: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 [`docs/MEASUREMENT.md`](docs/MEASUREMENT.md),
 [`docs/REFERENCES.md`](docs/REFERENCES.md),

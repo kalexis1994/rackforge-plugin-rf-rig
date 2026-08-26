@@ -93,13 +93,16 @@
         flex: 1;
         overflow: auto;
         padding: 20px;
+        display: flex;
+        align-items: flex-start;
       }
 
       .board {
         display: flex;
         gap: 0;
+        /* Stretch, so every enclosure is the height of the tallest — but only
+           as tall as that one needs, not as tall as the window. */
         align-items: stretch;
-        min-height: 100%;
       }
 
       .pedal {
@@ -121,9 +124,39 @@
 
       .pedal-head {
         display: flex;
-        align-items: baseline;
+        align-items: center;
         justify-content: space-between;
         gap: 8px;
+        /* The header is the drag handle, so the browser must not claim the
+           gesture for scrolling. */
+        touch-action: none;
+        cursor: grab;
+        user-select: none;
+      }
+
+      .pedal-head:active {
+        cursor: grabbing;
+      }
+
+      .grip {
+        color: var(--muted);
+        font-size: 13px;
+        letter-spacing: -0.1em;
+      }
+
+      .pedal.dragging {
+        position: relative;
+        /* Lifted off the board and out of the way of hit-testing so the
+           neighbour under the cursor is the one that answers. */
+        z-index: 3;
+        cursor: grabbing;
+        box-shadow: 0 18px 34px #000a;
+        transform-origin: center;
+      }
+
+      .pedal.dragging .knobs,
+      .pedal.dragging .footer {
+        pointer-events: none;
       }
 
       .pedal-name {
@@ -153,10 +186,51 @@
         user-select: none;
       }
 
+      .knob.wide {
+        width: auto;
+        min-width: 62px;
+      }
+
       .knob svg {
         display: block;
         margin: 0 auto;
         cursor: ns-resize;
+      }
+
+      .knob svg:focus-visible {
+        outline: 2px solid var(--amber);
+        outline-offset: 1px;
+        border-radius: 50%;
+      }
+
+      .knob-body {
+        fill: #2a2e33;
+        stroke: var(--enclosure-edge);
+        stroke-width: 1.5;
+      }
+
+      .knob svg.held .knob-body {
+        stroke: var(--amber);
+      }
+
+      .knob-sweep {
+        stroke: #a97b2f;
+        stroke-width: 2.5;
+        stroke-linecap: round;
+      }
+
+      .knob svg.held .knob-sweep {
+        stroke: var(--amber);
+      }
+
+      .knob-pointer {
+        stroke: var(--steel);
+        stroke-width: 2.5;
+        stroke-linecap: round;
+      }
+
+      .knob svg.held .knob-pointer {
+        stroke: var(--ink);
       }
 
       .knob .label {
@@ -232,11 +306,27 @@
         line-height: 1.2;
       }
 
+      .move button:disabled {
+        opacity: 0.35;
+        cursor: default;
+      }
+
+      .slot {
+        font-variant-numeric: tabular-nums;
+      }
+
       .cable {
         flex: 0 0 34px;
         align-self: center;
         height: 60px;
         opacity: 0.85;
+        pointer-events: none;
+      }
+
+      .cable-line {
+        stroke: #4a423a;
+        stroke-width: 5;
+        stroke-linecap: round;
       }
 
       .status {
@@ -283,7 +373,9 @@
       <div class="board" id="board"></div>
     </main>
 
-    <div class="status" id="status">Connecting to RackForge…</div>
+    <div class="status" id="status" role="status" aria-live="polite">
+      Connecting to RackForge…
+    </div>
 
     <script src="play.js"></script>
   </body>

@@ -6,18 +6,50 @@
     <title>RF-Rig surface preview</title>
     <style>
       html,
-      body,
-      iframe {
+      body {
         width: 100%;
-        min-height: 100%;
+        height: 100%;
         margin: 0;
+        background: #0b0a09;
+        color: #cfc8bd;
+        font: 12px "Segoe UI", Roboto, system-ui, sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      iframe {
+        flex: 1;
+        width: 100%;
         border: 0;
         background: #12100e;
       }
-      iframe {
-        position: fixed;
-        inset: 0;
-        height: 100%;
+      .rig-harness {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        padding: 6px 12px;
+        border-bottom: 1px solid #2a2521;
+        background: #16130f;
+        flex-wrap: wrap;
+      }
+      .rig-harness label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
+      }
+      .rig-harness input[type="range"] {
+        width: 96px;
+      }
+      .rig-harness .meter {
+        font-variant-numeric: tabular-nums;
+        color: #e8a33d;
+      }
+      .rig-harness .title {
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: #968f86;
       }
     </style>
   </head>
@@ -27,8 +59,59 @@
       building and installing a package. It speaks the same
       `rackforge.plugin.web@1` messages the host does and keeps parameter values
       in memory; it does not run the engine, so nothing here makes sound.
+
+      It also reproduces the two things about the real host that break a naive
+      surface, because a surface that only works against an instant, perfect
+      host is not finished:
+
+      * **Writes cost time.** A Rack Slot edits its plugin through an isolated
+        instance — open plugin, load state, set one value, save state — so a
+        write is tens of milliseconds, not zero. The latency control below puts
+        that back.
+      * **Every write moves the session revision, and every revision sends a
+        fresh context.** A surface that reloads on context and rebuilds on
+        reload will fight the hand that is turning the knob. The revision-storm
+        switch turns that echo on.
+
+      `window.__preview` exposes the counters so the behaviour can be asserted
+      from a console rather than judged by eye.
     -->
-    <iframe id="surface" src="../plugin/package/web/play.html" title="RF-Rig PLAY surface"></iframe>
+    <div class="rig-harness">
+      <span class="title">HOST SIMULATION</span>
+      <label>
+        Write latency
+        <input id="latency" type="range" min="0" max="200" step="5" value="40" />
+        <span class="meter" id="latency-readout">40 ms</span>
+      </label>
+      <label>
+        Refusals
+        <input id="refusals" type="range" min="0" max="100" step="5" value="0" />
+        <span class="meter" id="refusals-readout">0%</span>
+      </label>
+      <label>
+        <input id="storm" type="checkbox" checked />
+        Context on every write
+      </label>
+      <label>
+        <input id="mute" type="checkbox" />
+        Never answer
+      </label>
+      <label>
+        Writes <span class="meter" id="writes">0</span>
+      </label>
+      <label>
+        Peak rate <span class="meter" id="rate">0/s</span>
+      </label>
+      <label>
+        Errors <span class="meter" id="errors">0</span>
+      </label>
+    </div>
+    <!--
+      The surface is loaded with a cache-buster: without it the browser happily
+      serves yesterday's stylesheet while the freshly edited script runs, and
+      the resulting half-updated page is a very convincing bug that isn't one.
+    -->
+    <iframe id="surface" title="RF-Rig PLAY surface"></iframe>
     <script type="module">
       const protocol = "rackforge.plugin.web@1";
       const frame = document.querySelector("#surface");
@@ -45,7 +128,7 @@
         editable: false,
       }));
 
-      const values = new Map(
+      const defaults = new Map(
         schema.parameters.map((parameter) => [
           parameter.index,
           typeof parameter.kind.default === "boolean"
@@ -53,13 +136,65 @@
             : parameter.kind.default,
         ]),
       );
+      const values = new Map(defaults);
       let selectedSoundId = "";
 
+      const settings = { latencyMs: 40, refusalRate: 0, storm: true, mute: false };
+      const counters = { writes: 0, refused: 0, contexts: 0, reads: 0, surfaceInfo: 0 };
+      /// Timestamps of the last second of writes, for the rate meter.
+      let recentWrites = [];
+      let peakRate = 0;
+      /// Every write timestamp since the last reset. The gap between
+      /// consecutive entries is the only clamp-proof way to check the surface's
+      /// pacing: a hidden tab stretches every timer, so counting writes per
+      /// wall-clock second measures the browser, not the surface.
+      let writeStamps = [];
+
       window.__surfaceErrors = [];
-      window.addEventListener("error", (event) => window.__surfaceErrors.push(String(event.message)));
+      window.addEventListener("error", (event) =>
+        window.__surfaceErrors.push(String(event.message)),
+      );
+
+      const latency = document.querySelector("#latency");
+      const refusals = document.querySelector("#refusals");
+      const storm = document.querySelector("#storm");
+      const mute = document.querySelector("#mute");
+      const readouts = {
+        latency: document.querySelector("#latency-readout"),
+        refusals: document.querySelector("#refusals-readout"),
+        writes: document.querySelector("#writes"),
+        rate: document.querySelector("#rate"),
+        errors: document.querySelector("#errors"),
+      };
+
+      function readSettings() {
+        settings.latencyMs = Number(latency.value);
+        settings.refusalRate = Number(refusals.value) / 100;
+        settings.storm = storm.checked;
+        settings.mute = mute.checked;
+        readouts.latency.textContent = settings.latencyMs + " ms";
+        readouts.refusals.textContent = refusals.value + "%";
+      }
+      [latency, refusals, storm, mute].forEach((input) =>
+        input.addEventListener("input", readSettings),
+      );
+      readSettings();
+
+      function paintMeters() {
+        const now = performance.now();
+        recentWrites = recentWrites.filter((stamp) => now - stamp < 1000);
+        peakRate = Math.max(peakRate, recentWrites.length);
+        readouts.writes.textContent = String(counters.writes);
+        readouts.rate.textContent = peakRate + "/s";
+        readouts.errors.textContent = String(
+          counters.refused + window.__surfaceErrors.length,
+        );
+      }
+      setInterval(paintMeters, 200);
 
       const send = (message) => frame.contentWindow.postMessage(message, location.origin);
-      const sendContext = () =>
+      const sendContext = () => {
+        counters.contexts += 1;
         send({
           protocol,
           kind: "context",
@@ -75,10 +210,33 @@
           },
           host: { active_mode: "live", master_level: 0, master_pan: 0 },
         });
-      const respond = (requestId, result) =>
-        send({ protocol, kind: "response", request_id: requestId, ok: true, result });
-      const refuse = (requestId, error) =>
-        send({ protocol, kind: "response", request_id: requestId, ok: false, error });
+      };
+
+      /**
+       * Answers after the configured latency, the way a real slot write does —
+       * or, when muted, never answers at all. There is no message for "the
+       * plugin died"; a surface that waits forever for one is a surface that
+       * stops working and does not say so.
+       */
+      function reply(requestId, ok, payload) {
+        if (settings.mute) return;
+        const deliver = () =>
+          send({
+            protocol,
+            kind: "response",
+            request_id: requestId,
+            ok,
+            [ok ? "result" : "error"]: payload,
+          });
+        if (settings.latencyMs <= 0) deliver();
+        else setTimeout(deliver, settings.latencyMs);
+      }
+
+      const respond = (requestId, result) => reply(requestId, true, result);
+      const refuse = (requestId, error) => {
+        counters.refused += 1;
+        reply(requestId, false, error);
+      };
 
       /** The host validates before it writes; so does the preview. */
       function canonical(parameter, value) {
@@ -107,6 +265,7 @@
         if (message.kind !== "request") return;
 
         if (message.method === "plugin.parameters") {
+          counters.reads += 1;
           respond(message.request_id, {
             schema,
             values: schema.parameters.map((parameter) => ({
@@ -118,11 +277,18 @@
         }
 
         if (message.method === "plugin.set_parameter") {
+          counters.writes += 1;
+          recentWrites.push(performance.now());
+          writeStamps.push(performance.now());
           const parameter = schema.parameters.find(
             (candidate) => candidate.index === message.params.parameter_index,
           );
           if (!parameter) {
             refuse(message.request_id, "unknown parameter");
+            return;
+          }
+          if (Math.random() < settings.refusalRate) {
+            refuse(message.request_id, "the slot is busy");
             return;
           }
           const value = canonical(parameter, message.params.value);
@@ -132,23 +298,92 @@
           }
           values.set(parameter.index, value);
           respond(message.request_id, { parameter_index: parameter.index, value });
+          // A write moves the session revision, and a revision re-sends the
+          // context to every surface — including the one that caused it.
+          if (settings.storm) setTimeout(sendContext, settings.latencyMs + 5);
           return;
         }
 
         if (message.method === "plugin.select_sound") {
           selectedSoundId = message.params.sound_id;
+          // The exported metadata lists the factory boards but not what they
+          // contain — the values live in the compiled contract. The preview
+          // approximates a load as a return to the defaults, which is wrong in
+          // detail but exercises the part that matters here: every parameter
+          // changes at once, underneath whatever the surface was doing.
+          values.clear();
+          defaults.forEach((value, index) => values.set(index, value));
           respond(message.request_id, {});
-          sendContext();
+          setTimeout(sendContext, settings.latencyMs + 5);
           return;
         }
 
         if (message.method === "plugin.set_surface_info") {
+          counters.surfaceInfo += 1;
           respond(message.request_id, {});
           return;
         }
 
         refuse(message.request_id, "the preview does not implement " + message.method);
       });
+
+      // Loaded last, for two reasons. The cache-buster: without it the
+      // browser serves yesterday's stylesheet alongside the freshly edited
+      // script, and the half-updated page is a very convincing bug that isn't
+      // one. And the timing: this module waits on two fetches before it can
+      // listen, so a surface that started loading first could say `ready` into
+      // an empty room.
+      frame.src = "../plugin/package/web/play.html?reload=" + Date.now();
+
+      /** For driving the harness from a console or a test. */
+      window.__preview = {
+        counters,
+        settings,
+        peakRate: () => peakRate,
+        /// The shortest interval the surface left between two writes.
+        smallestWriteGap() {
+          let smallest = Infinity;
+          for (let index = 1; index < writeStamps.length; index += 1) {
+            smallest = Math.min(smallest, writeStamps[index] - writeStamps[index - 1]);
+          }
+          return writeStamps.length > 1 ? Math.round(smallest) : null;
+        },
+        resetCounters() {
+          counters.writes = 0;
+          counters.refused = 0;
+          counters.contexts = 0;
+          counters.reads = 0;
+          counters.surfaceInfo = 0;
+          recentWrites = [];
+          writeStamps = [];
+          peakRate = 0;
+          window.__surfaceErrors.length = 0;
+          paintMeters();
+        },
+        configure(next) {
+          if (next.latencyMs !== undefined) latency.value = String(next.latencyMs);
+          if (next.refusalRate !== undefined) refusals.value = String(next.refusalRate * 100);
+          if (next.storm !== undefined) storm.checked = next.storm;
+          if (next.mute !== undefined) mute.checked = next.mute;
+          readSettings();
+        },
+        value(id) {
+          const parameter = schema.parameters.find((entry) => entry.id === id);
+          return parameter ? values.get(parameter.index) : undefined;
+        },
+        order() {
+          return schema.parameters
+            .filter((parameter) => parameter.id.endsWith(".position"))
+            .map((parameter) => ({
+              pedal: parameter.id.replace(".position", ""),
+              position: values.get(parameter.index),
+            }))
+            .sort((left, right) => left.position - right.position)
+            .map((entry) => entry.pedal);
+        },
+        surface: () => frame.contentWindow,
+        sendContext,
+      };
     </script>
   </body>
 </html>
