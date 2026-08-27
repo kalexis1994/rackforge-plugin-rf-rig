@@ -93,16 +93,21 @@ plugin — the desktop's Plugin Manager, or:
 ./target/release/rackforge-desktop.exe --install-plugin ../rackforge-plugin-rf-rig/artifacts/RF-Rig.rfplugin
 ```
 
-### One host change is still needed
+### Putting it on a board
 
-RackForge's engine already runs effects: the Rack graph compiles a hardware
-audio input into a plugin node and the audio thread mixes it, and this package
-passes the host's validation as it stands. What the Web UI does not do yet is
-*offer* an effect when you add a plugin to a Rack Slot — the picker filters for
-`kind === "instrument"`. Until that lands, RF-Rig installs and validates but
-cannot be placed on a board from the interface. See
-[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) for the exact
-change.
+Enable RF-Rig in Plugin Manager, then open a Rack and add an **Effect** node —
+either from the button in the Slot settings header or by right-clicking the
+graph canvas. The editor wires it from the hardware audio input, so whatever is
+plugged into the interface runs through the board and out to the main output.
+
+Move it wherever you like afterwards: the node is an ordinary Slot, so it can
+sit behind an instrument instead of the input, or feed another Slot.
+
+> RackForge's engine could always run effects — the Rack graph compiles a
+> hardware audio input into a plugin node and the audio thread mixes it — but
+> until August 2026 the Web UI's Slot picker filtered for
+> `kind === "instrument"`, so an effect could be installed and validated and
+> still never reach a board.
 
 ## Working on it
 

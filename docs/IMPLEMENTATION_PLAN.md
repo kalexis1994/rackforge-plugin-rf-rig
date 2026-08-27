@@ -16,14 +16,14 @@
 
 ## Next: make it playable
 
-**1. The host has to offer effects in a Rack Slot.** RackForge's engine already
-runs them — `rack_graph.rs` compiles a hardware audio input into a plugin node,
-`live.rs` mixes it, and a test named `compiles_hardware_audio_input_into_an_effect`
-builds exactly this graph on a rack it calls "pedalboard". The gap is in the Web
-UI: `web/src/rackInstrumentSelection.ts` filters the picker to
-`kind === "instrument"`, and `RackGraphEditor.tsx` offers "Instrument" and
-"Audio Input" but no "Effect". Both need to change, plus whatever the Rack Slot
-popover shows for a node with no MIDI input.
+**1. ~~The host has to offer effects in a Rack Slot.~~** Done, August 2026. The
+engine always ran them — `rack_graph.rs` compiles a hardware audio input into a
+plugin node and `live.rs` mixes it — so the change was entirely in the Web UI:
+the Slot picker no longer filters for `kind === "instrument"`, and adding an
+Effect wires the node from the audio input rather than from MIDI, creating that
+input if the Rack has none. The Slot popover needed nothing: it shows the
+plugin's surface, and the note-range editor is reached by clicking a MIDI edge,
+which an effect does not have.
 
 **2. Live knob response in a Rack Slot.** Slot-bound editing currently goes
 through an isolated instance: a knob turn edits stored state rather than the
