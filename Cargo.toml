@@ -20,8 +20,8 @@ libm = "0.2"
 
 # Portable RackForge ABI used by the processor adapter. Local contributors can
 # override this revision with `.cargo/config.toml.example`.
-rackforge-plugin-sdk = { git = "https://github.com/kalexis1994/rackforge.git", rev = "ab7bcba8bc1f7b03ce32e69399c232a8d8b91bf4" }
+rackforge-plugin-sdk = { git = "https://github.com/kalexis1994/rackforge.git", rev = "3f3a8f8d0169957e6308dab7e68e49f3834da8e2" }
 
 # The host's own runtime, used by one test: the packaged component must be able
 # to start. See crates/rf-rig-lab/tests/component_instantiates.rs.
-rackforge-plugin-runtime = { git = "https://github.com/kalexis1994/rackforge.git", rev = "ab7bcba8bc1f7b03ce32e69399c232a8d8b91bf4" }
+rackforge-plugin-runtime = { git = "https://github.com/kalexis1994/rackforge.git", rev = "3f3a8f8d0169957e6308dab7e68e49f3834da8e2" }

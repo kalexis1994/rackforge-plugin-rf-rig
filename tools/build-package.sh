@@ -29,8 +29,13 @@ cd "$repo_root"
 # manifest. Regenerating both here keeps the release version written in exactly
 # one file.
 cargo run --locked --release -p rf-rig-lab -- metadata
-cargo test --locked --release --workspace
+# The component is built before the tests, not after: one of them loads the
+# built wasm in the host's own runtime, and running it first would have it
+# certify the *previous* build. That test is the only thing standing between a
+# host ABI change and a package that installs and then fails to start, so it
+# has to be looking at the component this run produced.
 cargo build --locked --release -p rackforge-rf-rig --target wasm32-unknown-unknown
+cargo test --locked --release --workspace
 
 mkdir -p "$(dirname "$output")"
 stage="$(mktemp -d)"

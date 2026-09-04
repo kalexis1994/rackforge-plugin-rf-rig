@@ -34,11 +34,16 @@ try {
     cargo "+$Toolchain" run --locked --release -p rf-rig-lab -- metadata
     if ($LASTEXITCODE -ne 0) { throw "RF-Rig metadata generation failed" }
 
-    cargo "+$Toolchain" test --locked --release --workspace
-    if ($LASTEXITCODE -ne 0) { throw "RF-Rig tests failed" }
-
+    # The component is built before the tests, not after: one of them loads the
+    # built wasm in the host's own runtime, and running it first would have it
+    # certify the *previous* build. That test is the only thing standing between
+    # a host ABI change and a package that installs and then fails to start, so
+    # it has to be looking at the component this run produced.
     cargo "+$Toolchain" build --locked --release -p rackforge-rf-rig --target wasm32-unknown-unknown
     if ($LASTEXITCODE -ne 0) { throw "RF-Rig WebAssembly build failed" }
+
+    cargo "+$Toolchain" test --locked --release --workspace
+    if ($LASTEXITCODE -ne 0) { throw "RF-Rig tests failed" }
 
     $outputParent = Split-Path -Parent $Output
     New-Item -ItemType Directory -Path $outputParent -Force | Out-Null
