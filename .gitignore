@@ -3,6 +3,5 @@
 /tmp/
 /measurements/
 /references-local/
-/.cargo/config.toml
 /plugin/package/component.wasm
 *.rfplugin
